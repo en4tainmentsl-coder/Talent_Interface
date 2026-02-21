@@ -1,0 +1,192 @@
+import React, { useState, useEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route, Link, NavLink, Navigate } from 'react-router-dom';
+import { supabase } from './supabase';
+import { 
+  LayoutDashboard, 
+  UserCircle, 
+  CalendarCheck, 
+  LogOut, 
+  Music2, 
+  Menu, 
+  X,
+  Bell
+} from 'lucide-react';
+import { cn } from './utils';
+import Dashboard from './components/Dashboard';
+import ProfileEditor from './components/ProfileEditor';
+import BookingManager from './components/BookingManager';
+
+export default function App() {
+  const [session, setSession] = useState<any>(null);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isConfigured, setIsConfigured] = useState(true);
+
+  useEffect(() => {
+    const url = (import.meta as any).env?.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+    const key = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
+    
+    if (!url || !key) {
+      setIsConfigured(false);
+      return;
+    }
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+    });
+
+    return () => subscription?.unsubscribe();
+  }, []);
+
+  if (!isConfigured) {
+    return (
+      <div className="min-h-screen bg-[#f8f9fa] flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white rounded-[2.5rem] shadow-2xl p-10 space-y-8 text-center border border-gray-100">
+          <div className="flex justify-center">
+            <div className="w-20 h-20 bg-amber-500 rounded-3xl flex items-center justify-center shadow-lg shadow-amber-200">
+              <Bell className="w-10 h-10 text-white" />
+            </div>
+          </div>
+          <div>
+            <h1 className="text-3xl font-black tracking-tight text-gray-900">Configuration Required</h1>
+            <p className="text-gray-500 mt-4 font-medium">
+              Please set your <code className="bg-gray-100 px-1 rounded">SUPABASE_URL</code> and <code className="bg-gray-100 px-1 rounded">SUPABASE_ANON_KEY</code> in the Secrets panel to continue.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!session) {
+    return (
+      <div className="min-h-screen bg-[#f8f9fa] flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white rounded-[2.5rem] shadow-2xl p-10 space-y-8 text-center border border-gray-100">
+          <div className="flex justify-center">
+            <div className="w-20 h-20 bg-emerald-500 rounded-3xl flex items-center justify-center shadow-lg shadow-emerald-200">
+              <Music2 className="w-10 h-10 text-white" />
+            </div>
+          </div>
+          <div>
+            <h1 className="text-4xl font-black tracking-tight text-gray-900">En410</h1>
+            <p className="text-gray-500 mt-2 font-medium">The ultimate platform for Talent management.</p>
+          </div>
+          <div className="space-y-4">
+            <button 
+              onClick={() => supabase.auth.signInWithOAuth({ provider: 'google' })}
+              className="w-full py-4 bg-black text-white rounded-2xl font-bold text-lg hover:bg-gray-800 transition-all transform hover:scale-[1.02] active:scale-[0.98] shadow-xl"
+            >
+              Sign in with Google
+            </button>
+            <p className="text-xs text-gray-400">By signing in, you agree to our Terms of Service.</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <Router>
+      <div className="min-h-screen bg-[#f8f9fa] flex flex-col md:flex-row">
+        {/* Sidebar */}
+        <aside className={cn(
+          "fixed inset-y-0 left-0 z-50 w-72 bg-white border-r transition-transform duration-300 md:relative md:translate-x-0",
+          isMenuOpen ? "translate-x-0" : "-translate-x-full"
+        )}>
+          <div className="h-full flex flex-col p-6">
+            <div className="flex items-center justify-between mb-10 px-2">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-emerald-500 rounded-xl flex items-center justify-center">
+                  <Music2 className="w-6 h-6 text-white" />
+                </div>
+                <span className="text-2xl font-black tracking-tighter">En410</span>
+              </div>
+              <button onClick={() => setIsMenuOpen(false)} className="md:hidden">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <nav className="flex-1 space-y-2">
+              <NavItem to="/" icon={<LayoutDashboard className="w-5 h-5" />} label="Dashboard" />
+              <NavItem to="/profile" icon={<UserCircle className="w-5 h-5" />} label="My Profile" />
+              <NavItem to="/bookings" icon={<CalendarCheck className="w-5 h-5" />} label="Bookings" />
+            </nav>
+
+            <div className="pt-6 border-t mt-auto">
+              <div className="flex items-center gap-3 px-4 py-3 mb-4 bg-gray-50 rounded-2xl">
+                <img 
+                  src={session.user.user_metadata.avatar_url} 
+                  className="w-10 h-10 rounded-full border-2 border-white shadow-sm"
+                  alt="Avatar"
+                />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-bold truncate">{session.user.user_metadata.full_name}</p>
+                  <p className="text-xs text-gray-500 truncate">{session.user.email}</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => supabase.auth.signOut()}
+                className="w-full flex items-center gap-3 px-4 py-3 text-red-600 hover:bg-red-50 rounded-2xl transition-colors font-bold text-sm"
+              >
+                <LogOut className="w-5 h-5" />
+                Sign Out
+              </button>
+            </div>
+          </div>
+        </aside>
+
+        {/* Main Content */}
+        <main className="flex-1 min-w-0 overflow-auto">
+          {/* Header */}
+          <header className="h-20 bg-white/80 backdrop-blur-md border-b sticky top-0 z-40 px-8 flex items-center justify-between">
+            <button onClick={() => setIsMenuOpen(true)} className="md:hidden p-2 hover:bg-gray-100 rounded-lg">
+              <Menu className="w-6 h-6" />
+            </button>
+            <div className="hidden md:block">
+              <h2 className="text-sm font-bold text-gray-400 uppercase tracking-widest">Talent Portal</h2>
+            </div>
+            <div className="flex items-center gap-4">
+              <button className="p-2 text-gray-400 hover:text-black transition-colors relative">
+                <Bell className="w-6 h-6" />
+                <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
+              </button>
+              <div className="h-8 w-[1px] bg-gray-200 mx-2"></div>
+              <Link to="/profile" className="flex items-center gap-2 group">
+                <span className="text-sm font-bold group-hover:text-emerald-600 transition-colors">Settings</span>
+              </Link>
+            </div>
+          </header>
+
+          <div className="p-4 md:p-8">
+            <Routes>
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/profile" element={<ProfileEditor />} />
+              <Route path="/bookings" element={<BookingManager />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </div>
+        </main>
+      </div>
+    </Router>
+  );
+}
+
+function NavItem({ to, icon, label }: { to: string; icon: React.ReactNode; label: string }) {
+  return (
+    <NavLink 
+      to={to}
+      className={({ isActive }) => cn(
+        "flex items-center gap-3 px-4 py-3 rounded-2xl transition-all font-bold text-sm",
+        isActive 
+          ? "bg-emerald-500 text-white shadow-lg shadow-emerald-200" 
+          : "text-gray-500 hover:bg-gray-100 hover:text-black"
+      )}
+    >
+      {icon}
+      {label}
+    </NavLink>
+  );
+}
