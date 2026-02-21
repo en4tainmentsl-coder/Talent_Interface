@@ -8,12 +8,15 @@ import {
   LogOut, 
   Menu, 
   X,
-  Bell
+  Bell,
+  FileText
 } from 'lucide-react';
 import { cn } from './utils';
+import { AnimatePresence } from 'motion/react';
 import Dashboard from './components/Dashboard';
 import ProfileEditor from './components/ProfileEditor';
 import BookingManager from './components/BookingManager';
+import Agreement from './components/Agreement';
 
 export default function App() {
   const [session, setSession] = useState<any>(null);
@@ -89,11 +92,12 @@ export default function App() {
               </button>
             </div>
 
-            <nav className="flex-1 space-y-2">
-              <NavItem to="/" icon={<LayoutDashboard className="w-5 h-5" />} label="Dashboard" />
-              <NavItem to="/profile" icon={<UserCircle className="w-5 h-5" />} label="My Profile" />
-              <NavItem to="/bookings" icon={<CalendarCheck className="w-5 h-5" />} label="Bookings" />
-            </nav>
+              <nav className="flex-1 space-y-2">
+                <NavItem to="/" icon={<LayoutDashboard className="w-5 h-5" />} label="Dashboard" />
+                <NavItem to="/profile" icon={<UserCircle className="w-5 h-5" />} label="My Profile" />
+                <NavItem to="/bookings" icon={<CalendarCheck className="w-5 h-5" />} label="Bookings" />
+                <NavItem to="/agreement" icon={<FileText className="w-5 h-5" />} label="Agreement" />
+              </nav>
 
             <div className="pt-6 border-t mt-auto">
               <div className="flex items-center gap-3 px-4 py-3 mb-4 bg-gray-50 rounded-2xl">
@@ -140,14 +144,17 @@ export default function App() {
             </div>
           </header>
 
-          <div className="p-4 md:p-8">
-            <Routes>
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/profile" element={<ProfileEditor />} />
-              <Route path="/bookings" element={<BookingManager />} />
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
-          </div>
+            <div className="p-4 md:p-8">
+              <AnimatePresence mode="wait">
+                <Routes>
+                  <Route path="/" element={<Dashboard />} />
+                  <Route path="/profile" element={<ProfileEditor />} />
+                  <Route path="/bookings" element={<BookingManager />} />
+                  <Route path="/agreement" element={<Agreement />} />
+                  <Route path="*" element={<Navigate to="/" replace />} />
+                </Routes>
+              </AnimatePresence>
+            </div>
         </main>
       </div>
     </Router>

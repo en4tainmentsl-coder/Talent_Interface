@@ -1,10 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase, Profile } from '../supabase';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { Camera, Upload, Save, Loader2 } from 'lucide-react';
+import { Camera, Upload, Save, Loader2, CheckCircle2, X } from 'lucide-react';
 import { cn } from '../utils';
+import Markdown from 'react-markdown';
+import { ARTIST_AGREEMENT } from '../constants';
+import { motion, AnimatePresence } from 'motion/react';
 
 const profileSchema = z.object({
   stage_name: z.string().min(2, "Stage name is required"),
@@ -36,6 +39,10 @@ export default function ProfileEditor() {
   const [saving, setSaving] = useState(false);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [user, setUser] = useState<any>(null);
+  const [showAgreement, setShowAgreement] = useState(false);
+  const [hasReadToBottom, setHasReadToBottom] = useState(false);
+  const [pendingValues, setPendingValues] = useState<ProfileFormValues | null>(null);
+  const agreementRef = useRef<HTMLDivElement>(null);
 
   const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm<ProfileFormValues>({
     resolver: zodResolver(profileSchema),
@@ -74,13 +81,21 @@ export default function ProfileEditor() {
 
   const onSubmit = async (values: ProfileFormValues) => {
     if (!user) return;
+    setPendingValues(values);
+    setShowAgreement(true);
+    setHasReadToBottom(false);
+  };
+
+  const handleAgreement = async () => {
+    if (!user || !pendingValues) return;
     setSaving(true);
+    setShowAgreement(false);
     try {
       const { error } = await supabase
         .from('profiles')
         .upsert({
           id: user.id,
-          ...values,
+          ...pendingValues,
           updated_at: new Date().toISOString(),
         });
       if (error) throw error;
@@ -89,6 +104,14 @@ export default function ProfileEditor() {
       alert(error.message);
     } finally {
       setSaving(false);
+      setPendingValues(null);
+    }
+  };
+
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+    if (scrollHeight - scrollTop <= clientHeight + 50) {
+      setHasReadToBottom(true);
     }
   };
 
@@ -329,6 +352,86 @@ export default function ProfileEditor() {
           </div>
         </section>
       </form>
+
+      {/* Agreement Modal */}
+      <AnimatePresence>
+        {showAgreement && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowAgreement(false)}
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-2xl bg-white rounded-[2.5rem] shadow-2xl flex flex-col max-h-[90vh] overflow-hidden"
+            >
+              <div className="p-8 border-b flex items-center justify-between bg-gray-50/50">
+                <div>
+                  <h2 className="text-2xl font-black tracking-tight">Artist Agreement</h2>
+                  <p className="text-sm text-gray-500 font-medium">Please review and accept to continue</p>
+                </div>
+                <button 
+                  onClick={() => setShowAgreement(false)}
+                  className="p-2 hover:bg-gray-200 rounded-full transition-colors"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              <div 
+                ref={agreementRef}
+                onScroll={handleScroll}
+                className="flex-1 overflow-y-auto p-8 prose prose-slate max-w-none scroll-smooth"
+              >
+                <div className="markdown-body">
+                  <Markdown>{ARTIST_AGREEMENT}</Markdown>
+                </div>
+                
+                {!hasReadToBottom && (
+                  <div className="sticky bottom-0 left-0 right-0 py-4 bg-gradient-to-t from-white to-transparent flex justify-center">
+                    <div className="bg-emerald-50 text-emerald-700 px-4 py-2 rounded-full text-xs font-bold animate-bounce shadow-sm border border-emerald-100">
+                      Scroll to bottom to accept ↓
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="p-8 border-t bg-gray-50/50 flex flex-col sm:flex-row gap-4 items-center justify-between">
+                <div className="flex items-center gap-2 text-sm font-medium text-gray-500">
+                  {hasReadToBottom ? (
+                    <span className="flex items-center gap-1 text-emerald-600">
+                      <CheckCircle2 className="w-4 h-4" />
+                      Ready to accept
+                    </span>
+                  ) : (
+                    <span>Please read the full agreement</span>
+                  )}
+                </div>
+                <div className="flex gap-3 w-full sm:w-auto">
+                  <button 
+                    onClick={() => setShowAgreement(false)}
+                    className="flex-1 sm:flex-none px-8 py-4 text-gray-600 font-bold hover:bg-gray-100 rounded-2xl transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    onClick={handleAgreement}
+                    disabled={!hasReadToBottom}
+                    className="flex-1 sm:flex-none px-10 py-4 bg-emerald-600 text-white rounded-2xl font-bold hover:bg-emerald-700 transition-all disabled:opacity-50 disabled:grayscale shadow-lg shadow-emerald-200 active:scale-95"
+                  >
+                    I Agree & Save
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
