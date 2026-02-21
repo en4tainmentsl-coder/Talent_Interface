@@ -1,6 +1,6 @@
 {
   "name": "En410",
-  "description": "A comprehensive platform for Talent to manage profiles, bookings, quotations, and earnings, synced with Supabase for venue-facing visibility.",
+  "description": "A comprehensive platform for Artists to get gigs.",
   "requestFramePermissions": [
     "camera"
   ]

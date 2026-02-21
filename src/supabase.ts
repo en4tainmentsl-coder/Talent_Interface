@@ -5,14 +5,45 @@ const getEnvVar = (name: string) => {
 };
 
 const rawUrl = getEnvVar('SUPABASE_URL');
-const supabaseUrl = rawUrl && rawUrl.startsWith('http') ? rawUrl : 'https://placeholder.supabase.co';
-const supabaseAnonKey = getEnvVar('SUPABASE_ANON_KEY') || 'placeholder';
+const rawKey = getEnvVar('SUPABASE_ANON_KEY');
 
-if (!rawUrl || !rawUrl.startsWith('http')) {
-  console.warn('Invalid or missing SUPABASE_URL. Please ensure it starts with http:// or https://');
-}
+const isValidUrl = (url: any): url is string => {
+  return typeof url === 'string' && url.trim().startsWith('http');
+};
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// Mock implementation for previewing without real Supabase
+const mockSupabase = {
+  auth: {
+    getSession: async () => ({ data: { session: { user: { id: 'mock-id', email: 'test@example.com', user_metadata: { full_name: 'Test Artist', avatar_url: 'https://picsum.photos/200' } } } }, error: null }),
+    onAuthStateChange: (cb: any) => {
+      cb('SIGNED_IN', { user: { id: 'mock-id', email: 'test@example.com', user_metadata: { full_name: 'Test Artist', avatar_url: 'https://picsum.photos/200' } } });
+      return { data: { subscription: { unsubscribe: () => {} } } };
+    },
+    signInWithOAuth: async () => ({ data: {}, error: null }),
+    signOut: async () => ({ error: null }),
+    getUser: async () => ({ data: { user: { id: 'mock-id', email: 'test@example.com', user_metadata: { full_name: 'Test Artist', avatar_url: 'https://picsum.photos/200' } } }, error: null }),
+  },
+  from: (table: string) => ({
+    select: () => ({
+      eq: () => ({
+        single: async () => ({ data: null, error: null }),
+        order: () => ({ data: [], error: null }),
+      }),
+      order: () => ({ data: [], error: null }),
+    }),
+    upsert: async () => ({ data: null, error: null }),
+    insert: async () => ({ data: null, error: null }),
+    update: () => ({ eq: async () => ({ data: null, error: null }) }),
+  }),
+  storage: {
+    from: () => ({
+      upload: async () => ({ data: { path: 'mock' }, error: null }),
+      getPublicUrl: () => ({ data: { publicUrl: 'https://picsum.photos/200' } }),
+    }),
+  },
+} as any;
+
+export const supabase = (isValidUrl(rawUrl) && rawKey) ? createClient(rawUrl, rawKey) : mockSupabase;
 
 export type Profile = {
   id: string;

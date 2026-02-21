@@ -6,7 +6,6 @@ import {
   UserCircle, 
   CalendarCheck, 
   LogOut, 
-  Music2, 
   Menu, 
   X,
   Bell
@@ -19,17 +18,8 @@ import BookingManager from './components/BookingManager';
 export default function App() {
   const [session, setSession] = useState<any>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [isConfigured, setIsConfigured] = useState(true);
 
   useEffect(() => {
-    const url = (import.meta as any).env?.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
-    const key = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
-    
-    if (!url || !key) {
-      setIsConfigured(false);
-      return;
-    }
-
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
     });
@@ -41,38 +31,23 @@ export default function App() {
     return () => subscription?.unsubscribe();
   }, []);
 
-  if (!isConfigured) {
-    return (
-      <div className="min-h-screen bg-[#f8f9fa] flex items-center justify-center p-4">
-        <div className="max-w-md w-full bg-white rounded-[2.5rem] shadow-2xl p-10 space-y-8 text-center border border-gray-100">
-          <div className="flex justify-center">
-            <div className="w-20 h-20 bg-amber-500 rounded-3xl flex items-center justify-center shadow-lg shadow-amber-200">
-              <Bell className="w-10 h-10 text-white" />
-            </div>
-          </div>
-          <div>
-            <h1 className="text-3xl font-black tracking-tight text-gray-900">Configuration Required</h1>
-            <p className="text-gray-500 mt-4 font-medium">
-              Please set your <code className="bg-gray-100 px-1 rounded">SUPABASE_URL</code> and <code className="bg-gray-100 px-1 rounded">SUPABASE_ANON_KEY</code> in the Secrets panel to continue.
-            </p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   if (!session) {
     return (
       <div className="min-h-screen bg-[#f8f9fa] flex items-center justify-center p-4">
         <div className="max-w-md w-full bg-white rounded-[2.5rem] shadow-2xl p-10 space-y-8 text-center border border-gray-100">
           <div className="flex justify-center">
-            <div className="w-20 h-20 bg-emerald-500 rounded-3xl flex items-center justify-center shadow-lg shadow-emerald-200">
-              <Music2 className="w-10 h-10 text-white" />
+            <div className="w-24 h-24 bg-white rounded-3xl flex items-center justify-center shadow-lg border border-gray-100 overflow-hidden p-2">
+              <img 
+                src="https://ik.imagekit.io/enfourreap/Picture1.png?updatedAt=1770550783858" 
+                alt="Logo" 
+                className="w-full h-full object-contain" 
+                referrerPolicy="no-referrer" 
+              />
             </div>
           </div>
           <div>
             <h1 className="text-4xl font-black tracking-tight text-gray-900">En410</h1>
-            <p className="text-gray-500 mt-2 font-medium">The ultimate platform for Talent management.</p>
+            <p className="text-gray-500 mt-2 font-medium">Find a gig for you.</p>
           </div>
           <div className="space-y-4">
             <button 
@@ -99,8 +74,13 @@ export default function App() {
           <div className="h-full flex flex-col p-6">
             <div className="flex items-center justify-between mb-10 px-2">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-emerald-500 rounded-xl flex items-center justify-center">
-                  <Music2 className="w-6 h-6 text-white" />
+                <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center border border-gray-100 overflow-hidden p-1">
+                  <img 
+                    src="https://ik.imagekit.io/enfourreap/Picture1.png?updatedAt=1770550783858" 
+                    alt="Logo" 
+                    className="w-full h-full object-contain" 
+                    referrerPolicy="no-referrer" 
+                  />
                 </div>
                 <span className="text-2xl font-black tracking-tighter">En410</span>
               </div>
@@ -146,7 +126,7 @@ export default function App() {
               <Menu className="w-6 h-6" />
             </button>
             <div className="hidden md:block">
-              <h2 className="text-sm font-bold text-gray-400 uppercase tracking-widest">Talent Portal</h2>
+              <h2 className="text-sm font-bold text-gray-400 uppercase tracking-widest">Artist Portal</h2>
             </div>
             <div className="flex items-center gap-4">
               <button className="p-2 text-gray-400 hover:text-black transition-colors relative">

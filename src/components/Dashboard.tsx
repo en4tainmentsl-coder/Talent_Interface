@@ -52,7 +52,7 @@ export default function Dashboard() {
   return (
     <div className="max-w-6xl mx-auto p-8 space-y-8">
       <div className="flex items-center justify-between">
-        <h1 className="text-4xl font-bold tracking-tight">Talent Dashboard</h1>
+        <h1 className="text-4xl font-bold tracking-tight">Artist Dashboard</h1>
         <div className="text-sm text-gray-500">Welcome back, {format(new Date(), 'MMMM do')}</div>
       </div>
 

@@ -142,7 +142,7 @@ export default function ProfileEditor() {
     <div className="max-w-4xl mx-auto p-8 bg-white shadow-xl rounded-3xl my-10">
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-4xl font-bold tracking-tight">Talent Profile</h1>
+          <h1 className="text-4xl font-bold tracking-tight">Artist Profile</h1>
           <p className="text-gray-500">Complete your details to start receiving bookings.</p>
         </div>
         <button 
