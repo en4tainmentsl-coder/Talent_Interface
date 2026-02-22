@@ -54,7 +54,12 @@ export default function App() {
           </div>
           <div className="space-y-4">
             <button 
-              onClick={() => supabase.auth.signInWithOAuth({ provider: 'google' })}
+              onClick={() => supabase.auth.signInWithOAuth({ 
+                provider: 'google',
+                options: {
+                  scopes: 'https://www.googleapis.com/auth/calendar.readonly'
+                }
+              })}
               className="w-full py-4 bg-black text-white rounded-2xl font-bold text-lg hover:bg-gray-800 transition-all transform hover:scale-[1.02] active:scale-[0.98] shadow-xl"
             >
               Sign in with Google

@@ -14,7 +14,7 @@ const isValidUrl = (url: any): url is string => {
 // Mock implementation for previewing without real Supabase
 const mockSupabase = {
   auth: {
-    getSession: async () => ({ data: { session: { user: { id: 'mock-id', email: 'test@example.com', user_metadata: { full_name: 'Test Artist', avatar_url: 'https://picsum.photos/200' } } } }, error: null }),
+    getSession: async () => ({ data: { session: { provider_token: 'mock-token', user: { id: 'mock-id', email: 'test@example.com', user_metadata: { full_name: 'Test Artist', avatar_url: 'https://picsum.photos/200' } } } }, error: null }),
     onAuthStateChange: (cb: any) => {
       cb('SIGNED_IN', { user: { id: 'mock-id', email: 'test@example.com', user_metadata: { full_name: 'Test Artist', avatar_url: 'https://picsum.photos/200' } } });
       return { data: { subscription: { unsubscribe: () => {} } } };
