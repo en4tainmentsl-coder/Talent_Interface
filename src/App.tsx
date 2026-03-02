@@ -9,7 +9,9 @@ import {
   Menu, 
   X,
   Bell,
-  FileText
+  FileText,
+  Briefcase,
+  ShieldCheck
 } from 'lucide-react';
 import { cn } from './utils';
 import { AnimatePresence } from 'motion/react';
@@ -17,6 +19,7 @@ import Dashboard from './components/Dashboard';
 import ProfileEditor from './components/ProfileEditor';
 import BookingManager from './components/BookingManager';
 import Agreement from './components/Agreement';
+import Contracts from './components/Contracts';
 
 export default function App() {
   const [session, setSession] = useState<any>(null);
@@ -101,7 +104,8 @@ export default function App() {
                 <NavItem to="/" icon={<LayoutDashboard className="w-5 h-5" />} label="Dashboard" />
                 <NavItem to="/profile" icon={<UserCircle className="w-5 h-5" />} label="My Profile" />
                 <NavItem to="/bookings" icon={<CalendarCheck className="w-5 h-5" />} label="Bookings" />
-                <NavItem to="/agreement" icon={<FileText className="w-5 h-5" />} label="Agreement" />
+                <NavItem to="/contracts" icon={<Briefcase className="w-5 h-5" />} label="Contracts" />
+                <NavItem to="/agreement" icon={<ShieldCheck className="w-5 h-5" />} label="Agreement" />
               </nav>
 
             <div className="pt-6 border-t mt-auto">
@@ -155,6 +159,7 @@ export default function App() {
                   <Route path="/" element={<Dashboard />} />
                   <Route path="/profile" element={<ProfileEditor />} />
                   <Route path="/bookings" element={<BookingManager />} />
+                  <Route path="/contracts" element={<Contracts />} />
                   <Route path="/agreement" element={<Agreement />} />
                   <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>

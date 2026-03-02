@@ -43,6 +43,35 @@ const mockSupabase = {
   },
 } as any;
 
+// Add some mock data for genres if using mock
+if (!(isValidUrl(rawUrl) && rawKey)) {
+  const originalFrom = mockSupabase.from;
+  mockSupabase.from = (table: string) => {
+    if (table === 'genres') {
+      return {
+        select: () => ({
+          order: async () => ({
+            data: [
+              { id: '1', name: 'Jazz' },
+              { id: '2', name: 'Pop' },
+              { id: '3', name: 'Rock' },
+              { id: '4', name: 'Classical' },
+              { id: '5', name: 'Hip Hop' },
+              { id: '6', name: 'Electronic' },
+              { id: '7', name: 'Blues' },
+              { id: '8', name: 'Country' },
+              { id: '9', name: 'Reggae' },
+              { id: '10', name: 'Funk' }
+            ],
+            error: null
+          })
+        })
+      };
+    }
+    return originalFrom(table);
+  };
+}
+
 export const supabase = (isValidUrl(rawUrl) && rawKey) ? createClient(rawUrl, rawKey) : mockSupabase;
 
 export type Profile = {
@@ -68,6 +97,8 @@ export type Profile = {
   bio: string;
   genres: string[];
   profile_picture_url?: string;
+  profile_cover_url?: string;
+  profile_feature_urls?: string[];
   nic_front_url?: string;
   nic_back_url?: string;
   created_at?: string;
@@ -104,4 +135,9 @@ export type Earning = {
   date: string;
   venue_name: string;
   created_at: string;
+};
+
+export type Genre = {
+  id: string;
+  name: string;
 };

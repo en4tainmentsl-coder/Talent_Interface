@@ -1,13 +1,43 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { supabase, Profile } from '../supabase';
+import { supabase, Profile, Genre } from '../supabase';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { Camera, Upload, Save, Loader2, CheckCircle2, X } from 'lucide-react';
+import { Camera, Upload, Save, Loader2, CheckCircle2, X, Info, Image as ImageIcon, HelpCircle } from 'lucide-react';
 import { cn } from '../utils';
 import Markdown from 'react-markdown';
 import { ARTIST_AGREEMENT } from '../constants';
 import { motion, AnimatePresence } from 'motion/react';
+
+function InfoTooltip({ content }: { content: string }) {
+  const [isOpen, setIsOpen] = useState(false);
+
+  return (
+    <div className="relative inline-block ml-1">
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        onBlur={() => setIsOpen(false)}
+        className="text-gray-400 hover:text-emerald-600 transition-colors focus:outline-none"
+      >
+        <Info className="w-3.5 h-3.5" />
+      </button>
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9, y: 5 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.9, y: 5 }}
+            className="absolute z-50 bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-3 bg-gray-900 text-white text-xs rounded-xl shadow-xl pointer-events-none"
+          >
+            {content}
+            <div className="absolute top-full left-1/2 -translate-x-1/2 border-8 border-transparent border-t-gray-900" />
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
 
 const profileSchema = z.object({
   stage_name: z.string().min(2, "Stage name is required"),
@@ -38,6 +68,7 @@ export default function ProfileEditor() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [genresList, setGenresList] = useState<Genre[]>([]);
   const [user, setUser] = useState<any>(null);
   const [showAgreement, setShowAgreement] = useState(false);
   const [hasReadToBottom, setHasReadToBottom] = useState(false);
@@ -58,6 +89,14 @@ export default function ProfileEditor() {
     async function getInitialData() {
       const { data: { user } } = await supabase.auth.getUser();
       setUser(user);
+      
+      // Fetch genres
+      const { data: genresData } = await supabase
+        .from('genres')
+        .select('*')
+        .order('name');
+      if (genresData) setGenresList(genresData);
+
       if (user) {
         const { data, error } = await supabase
           .from('profiles')
@@ -115,7 +154,7 @@ export default function ProfileEditor() {
     }
   };
 
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>, bucket: string, field: keyof Profile) => {
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>, bucket: string, field: keyof Profile, index?: number) => {
     const file = event.target.files?.[0];
     if (!file || !user) return;
 
@@ -135,13 +174,31 @@ export default function ProfileEditor() {
         .getPublicUrl(filePath);
 
       // Update profile with new URL
+      let updateData: any = { id: user.id };
+      
+      if (typeof index === 'number' && field === 'profile_feature_urls') {
+        const currentFeatures = [...(profile?.profile_feature_urls || ['', '', ''])];
+        currentFeatures[index] = publicUrl;
+        updateData[field] = currentFeatures;
+      } else {
+        updateData[field] = publicUrl;
+      }
+
       const { error: updateError } = await supabase
         .from('profiles')
-        .upsert({ id: user.id, [field]: publicUrl });
+        .upsert(updateData);
 
       if (updateError) throw updateError;
       
-      setProfile(prev => prev ? { ...prev, [field]: publicUrl } : null);
+      setProfile(prev => {
+        if (!prev) return null;
+        if (typeof index === 'number' && field === 'profile_feature_urls') {
+          const currentFeatures = [...(prev.profile_feature_urls || ['', '', ''])];
+          currentFeatures[index] = publicUrl;
+          return { ...prev, profile_feature_urls: currentFeatures };
+        }
+        return { ...prev, [field]: publicUrl };
+      });
     } catch (error: any) {
       alert(error.message);
     }
@@ -182,7 +239,7 @@ export default function ProfileEditor() {
         {/* Media Section */}
         <section className="space-y-6">
           <h2 className="text-xl font-semibold border-b pb-2">Media & Identity</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
             <div className="flex flex-col items-center space-y-4">
               <div className="w-32 h-32 rounded-full bg-gray-100 border-2 border-dashed border-gray-300 flex items-center justify-center overflow-hidden relative group">
                 {profile?.profile_picture_url ? (
@@ -195,19 +252,42 @@ export default function ProfileEditor() {
                   <Upload className="text-white w-6 h-6" />
                 </label>
               </div>
-              <span className="text-sm font-medium">Profile Picture</span>
+              <span className="text-sm font-medium flex items-center">
+                Profile Picture <InfoTooltip content="Upload a clear, high-quality photo of yourself, the band, or logo. This will primarily be used in the app." />
+              </span>
             </div>
 
-            <div className="col-span-2 grid grid-cols-2 gap-4">
+            <div className="flex flex-col items-center space-y-4">
+              <div className="w-full aspect-[16/9] rounded-2xl bg-gray-100 border-2 border-dashed border-gray-300 flex items-center justify-center overflow-hidden relative group">
+                {profile?.profile_cover_url ? (
+                  <img src={profile.profile_cover_url} className="w-full h-full object-cover" alt="Cover" />
+                ) : (
+                  <ImageIcon className="text-gray-400" />
+                )}
+                <label className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center cursor-pointer transition-opacity">
+                  <input type="file" className="hidden" onChange={(e) => handleFileUpload(e, 'covers', 'profile_cover_url')} accept="image/*" />
+                  <Upload className="text-white w-6 h-6" />
+                </label>
+              </div>
+              <span className="text-sm font-medium flex items-center">
+                Profile Cover Picture <InfoTooltip content="This image appears at the top of your Web profile page. Choose a visually striking photo that showcases your performance style, stage presence, or artistic identity." />
+              </span>
+            </div>
+
+            <div className="md:col-span-2 grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <label className="text-sm font-medium">NIC Front</label>
+                <label className="text-sm font-medium flex items-center">
+                  NIC Front <InfoTooltip content="Upload a clear photo of the front side of your National Identity Card. This is required for identity verification and to ensure the safety and trust of our platform." />
+                </label>
                 <div className="h-32 bg-gray-50 rounded-xl border border-dashed flex items-center justify-center relative overflow-hidden">
                   {profile?.nic_front_url ? <img src={profile.nic_front_url} className="w-full h-full object-cover" /> : <Upload className="text-gray-300" />}
                   <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={(e) => handleFileUpload(e, 'documents', 'nic_front_url')} />
                 </div>
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium">NIC Back</label>
+                <label className="text-sm font-medium flex items-center">
+                  NIC Back <InfoTooltip content="Upload a clear photo of the back of your National Identity Card. Both sides are required to complete your identity verification successfully." />
+                </label>
                 <div className="h-32 bg-gray-50 rounded-xl border border-dashed flex items-center justify-center relative overflow-hidden">
                   {profile?.nic_back_url ? <img src={profile.nic_back_url} className="w-full h-full object-cover" /> : <Upload className="text-gray-300" />}
                   <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={(e) => handleFileUpload(e, 'documents', 'nic_back_url')} />
@@ -215,12 +295,36 @@ export default function ProfileEditor() {
               </div>
             </div>
           </div>
+
+          {/* Feature Pictures Section */}
+          <div className="space-y-4">
+            <h3 className="text-sm font-bold flex items-center">
+              Profile Feature Pictures <InfoTooltip content="These image appear in your Web profile page. Choose a selection of three (3) visually striking photos that further showcase your performance style, stage presence, or artistic identity." />
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {[0, 1, 2].map((idx) => (
+                <div key={idx} className="h-40 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200 flex items-center justify-center relative overflow-hidden group">
+                  {profile?.profile_feature_urls?.[idx] ? (
+                    <img src={profile.profile_feature_urls[idx]} className="w-full h-full object-cover" alt={`Feature ${idx + 1}`} />
+                  ) : (
+                    <ImageIcon className="text-gray-300 w-8 h-8" />
+                  )}
+                  <label className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center cursor-pointer transition-opacity">
+                    <input type="file" className="hidden" onChange={(e) => handleFileUpload(e, 'features', 'profile_feature_urls', idx)} accept="image/*" />
+                    <Upload className="text-white w-6 h-6" />
+                  </label>
+                </div>
+              ))}
+            </div>
+          </div>
         </section>
 
         {/* Basic Info */}
         <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="space-y-2">
-            <label className="text-sm font-medium">Stage Name</label>
+            <label className="text-sm font-medium flex items-center">
+              Stage Name <InfoTooltip content="This is the name that will be displayed publicly on your Web profile. It can be your real name or your artist/performer alias — choose something that represents your brand." />
+            </label>
             <input {...register('stage_name')} className="w-full p-3 rounded-xl border focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="e.g. The Jazz Cat" />
             {errors.stage_name && <p className="text-red-500 text-xs">{errors.stage_name.message}</p>}
           </div>
@@ -242,7 +346,9 @@ export default function ProfileEditor() {
             <input {...register('national_id_number')} className="w-full p-3 rounded-xl border focus:ring-2 focus:ring-emerald-500 outline-none" />
           </div>
           <div className="space-y-2">
-            <label className="text-sm font-medium">Price per Session</label>
+            <label className="text-sm font-medium flex items-center">
+              Price per Session <InfoTooltip content="Set your standard rate for a single performance or session. This amount will be shown to clients when browsing your profile. You can adjust this at any time based on event type or duration when submitting a quotation." />
+            </label>
             <input type="number" {...register('price_per_session', { valueAsNumber: true })} className="w-full p-3 rounded-xl border focus:ring-2 focus:ring-emerald-500 outline-none" />
           </div>
         </section>
@@ -252,11 +358,15 @@ export default function ProfileEditor() {
           <h2 className="text-xl font-semibold border-b pb-2">Social Proof (FB/IG)</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">
-              <label className="text-sm font-medium">Trailer Video Link</label>
+              <label className="text-sm font-medium flex items-center">
+                Trailer Video Link <InfoTooltip content="Paste a link to a short video that best represents your act or performance style. Think of this as your highlight reel — make it engaging to attract more bookings." />
+              </label>
               <input {...register('fb_trailer_link')} className="w-full p-3 rounded-xl border focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="https://..." />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Live Performance Link</label>
+              <label className="text-sm font-medium flex items-center">
+                Live Performance Link <InfoTooltip content="Share a link to a recording or stream of one of your live performances. This gives clients a real sense of your stage presence, energy, and audience interaction." />
+              </label>
               <input {...register('fb_live_link')} className="w-full p-3 rounded-xl border focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="https://..." />
             </div>
           </div>
@@ -264,7 +374,9 @@ export default function ProfileEditor() {
 
         {/* Locations */}
         <section className="space-y-4">
-          <h2 className="text-xl font-semibold border-b pb-2">Travel & Locations</h2>
+          <h2 className="text-xl font-semibold border-b pb-2 flex items-center">
+            Travel & Locations <InfoTooltip content="Specify the cities, you're willing to travel for bookings. This helps clients find performers available in their area and avoids scheduling conflicts." />
+          </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">
               <label className="text-sm font-medium">Primary Location</label>
@@ -284,7 +396,9 @@ export default function ProfileEditor() {
 
         {/* Performance Details */}
         <section className="space-y-6">
-          <h2 className="text-xl font-semibold border-b pb-2">Performance Details</h2>
+          <h2 className="text-xl font-semibold border-b pb-2 flex items-center">
+            Performance Details <InfoTooltip content="Describe what clients can expect from your performance — including your genre, style, set duration, equipment needs, or any special requirements. The more detailed and concise you are, the more confident clients will feel booking you." />
+          </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">
               <label className="text-sm font-medium">Performance Type</label>
@@ -302,9 +416,23 @@ export default function ProfileEditor() {
             <div className="space-y-2">
               <label className="text-sm font-medium">Genres (Pick 3)</label>
               <div className="grid grid-cols-3 gap-2">
-                {[0, 1, 2].map(i => (
-                  <input key={i} {...register(`genres.${i}`)} className="w-full p-2 rounded-lg border text-sm" placeholder={`Genre ${i+1}`} />
+                {[0, 1].map(i => (
+                  <select 
+                    key={i} 
+                    {...register(`genres.${i}`)} 
+                    className="w-full p-2 rounded-lg border text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+                  >
+                    <option value="">Select Genre {i+1}</option>
+                    {genresList.map(genre => (
+                      <option key={genre.id} value={genre.name}>{genre.name}</option>
+                    ))}
+                  </select>
                 ))}
+                <input 
+                  {...register('genres.2')} 
+                  className="w-full p-2 rounded-lg border text-sm outline-none focus:ring-2 focus:ring-emerald-500" 
+                  placeholder="Any other Genre" 
+                />
               </div>
             </div>
             <div className="space-y-2">
@@ -331,7 +459,9 @@ export default function ProfileEditor() {
 
         {/* Bank Details */}
         <section className="space-y-4">
-          <h2 className="text-xl font-semibold border-b pb-2">Bank Details (For Earnings)</h2>
+          <h2 className="text-xl font-semibold border-b pb-2 flex items-center">
+            Bank Details (For Earnings) <InfoTooltip content="Enter your bank account information to receive payouts for completed performances. Your financial details are encrypted and stored securely, and will only be used to transfer your earnings." />
+          </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">
               <label className="text-sm font-medium">Name on Account</label>
