@@ -3,7 +3,7 @@ import { supabase, Profile, Genre } from '../supabase';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { Camera, Upload, Save, Loader2, CheckCircle2, X, Info, Image as ImageIcon, HelpCircle } from 'lucide-react';
+import { Camera, Upload, Save, Loader2, CheckCircle2, X, Info, Image as ImageIcon, HelpCircle, Pencil } from 'lucide-react';
 import { cn } from '../utils';
 import Markdown from 'react-markdown';
 import { ARTIST_AGREEMENT } from '../constants';
@@ -225,14 +225,23 @@ export default function ProfileEditor() {
           <h1 className="text-4xl font-bold tracking-tight">Artist Profile</h1>
           <p className="text-gray-500">Complete your details to start receiving bookings.</p>
         </div>
-        <button 
-          onClick={handleSubmit(onSubmit)}
-          disabled={saving}
-          className="flex items-center gap-2 px-6 py-3 bg-emerald-600 text-white rounded-full hover:bg-emerald-700 transition-colors disabled:opacity-50"
-        >
-          {saving ? <Loader2 className="animate-spin w-4 h-4" /> : <Save className="w-4 h-4" />}
-          Save Profile
-        </button>
+        <div className="flex flex-col gap-2">
+          <button 
+            onClick={handleSubmit(onSubmit)}
+            disabled={saving}
+            className="flex items-center gap-2 px-6 py-3 bg-emerald-600 text-white rounded-full hover:bg-emerald-700 transition-colors disabled:opacity-50"
+          >
+            {saving ? <Loader2 className="animate-spin w-4 h-4" /> : <Save className="w-4 h-4" />}
+            Save Profile
+          </button>
+          <button 
+            type="button"
+            className="flex items-center gap-2 px-6 py-2 bg-gray-100 text-gray-600 rounded-full hover:bg-gray-200 transition-colors text-sm font-medium justify-center"
+          >
+            <Pencil className="w-4 h-4" />
+            Edit Profile
+          </button>
+        </div>
       </div>
 
       <form className="space-y-12">
@@ -274,24 +283,30 @@ export default function ProfileEditor() {
               </span>
             </div>
 
-            <div className="md:col-span-2 grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <label className="text-sm font-medium flex items-center">
-                  NIC Front <InfoTooltip content="Upload a clear photo of the front side of your National Identity Card. This is required for identity verification and to ensure the safety and trust of our platform." />
-                </label>
-                <div className="h-32 bg-gray-50 rounded-xl border border-dashed flex items-center justify-center relative overflow-hidden">
-                  {profile?.nic_front_url ? <img src={profile.nic_front_url} className="w-full h-full object-cover" /> : <Upload className="text-gray-300" />}
-                  <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={(e) => handleFileUpload(e, 'documents', 'nic_front_url')} />
+            <div className="md:col-span-2 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium flex items-center">
+                    NIC Front <InfoTooltip content="Upload a clear photo of the front side of your National Identity Card. This is required for identity verification and to ensure the safety and trust of our platform." />
+                  </label>
+                  <div className="h-32 bg-gray-50 rounded-xl border border-dashed flex items-center justify-center relative overflow-hidden">
+                    {profile?.nic_front_url ? <img src={profile.nic_front_url} className="w-full h-full object-cover" /> : <Upload className="text-gray-300" />}
+                    <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={(e) => handleFileUpload(e, 'documents', 'nic_front_url')} />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium flex items-center">
+                    NIC Back <InfoTooltip content="Upload a clear photo of the back of your National Identity Card. Both sides are required to complete your identity verification successfully." />
+                  </label>
+                  <div className="h-32 bg-gray-50 rounded-xl border border-dashed flex items-center justify-center relative overflow-hidden">
+                    {profile?.nic_back_url ? <img src={profile.nic_back_url} className="w-full h-full object-cover" /> : <Upload className="text-gray-300" />}
+                    <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={(e) => handleFileUpload(e, 'documents', 'nic_back_url')} />
+                  </div>
                 </div>
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium flex items-center">
-                  NIC Back <InfoTooltip content="Upload a clear photo of the back of your National Identity Card. Both sides are required to complete your identity verification successfully." />
-                </label>
-                <div className="h-32 bg-gray-50 rounded-xl border border-dashed flex items-center justify-center relative overflow-hidden">
-                  {profile?.nic_back_url ? <img src={profile.nic_back_url} className="w-full h-full object-cover" /> : <Upload className="text-gray-300" />}
-                  <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={(e) => handleFileUpload(e, 'documents', 'nic_back_url')} />
-                </div>
+                <label className="text-sm font-medium">National ID Number</label>
+                <input {...register('national_id_number')} className="w-full p-3 rounded-xl border focus:ring-2 focus:ring-emerald-500 outline-none" />
               </div>
             </div>
           </div>
@@ -340,10 +355,6 @@ export default function ProfileEditor() {
           <div className="space-y-2">
             <label className="text-sm font-medium">Mobile Number</label>
             <input {...register('mobile')} className="w-full p-3 rounded-xl border focus:ring-2 focus:ring-emerald-500 outline-none" />
-          </div>
-          <div className="space-y-2">
-            <label className="text-sm font-medium">National ID Number</label>
-            <input {...register('national_id_number')} className="w-full p-3 rounded-xl border focus:ring-2 focus:ring-emerald-500 outline-none" />
           </div>
           <div className="space-y-2">
             <label className="text-sm font-medium flex items-center">

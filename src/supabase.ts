@@ -23,18 +23,20 @@ const mockSupabase = {
     signOut: async () => ({ error: null }),
     getUser: async () => ({ data: { user: { id: 'mock-id', email: 'test@example.com', user_metadata: { full_name: 'Test Artist', avatar_url: 'https://picsum.photos/200' } } }, error: null }),
   },
-  from: (table: string) => ({
-    select: () => ({
-      eq: () => ({
-        single: async () => ({ data: null, error: null }),
-        order: () => ({ data: [], error: null }),
-      }),
-      order: () => ({ data: [], error: null }),
-    }),
-    upsert: async () => ({ data: null, error: null }),
-    insert: async () => ({ data: null, error: null }),
-    update: () => ({ eq: async () => ({ data: null, error: null }) }),
-  }),
+  from: (table: string) => {
+    const queryBuilder: any = {
+      select: () => queryBuilder,
+      eq: () => queryBuilder,
+      in: () => queryBuilder,
+      order: () => queryBuilder,
+      single: async () => ({ data: null, error: null }),
+      upsert: async () => ({ data: null, error: null }),
+      insert: async () => ({ data: null, error: null }),
+      update: () => queryBuilder,
+      then: (onfulfilled: any) => Promise.resolve({ data: [], error: null }).then(onfulfilled),
+    };
+    return queryBuilder;
+  },
   storage: {
     from: () => ({
       upload: async () => ({ data: { path: 'mock' }, error: null }),
