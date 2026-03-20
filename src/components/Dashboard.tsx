@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { supabase, Earning } from '../supabase';
-import { TrendingUp, Calendar, MapPin, DollarSign, ArrowUpRight, Loader2, Star, Heart, CheckCircle2, Clock } from 'lucide-react';
+import { TrendingUp, Calendar, MapPin, DollarSign, ArrowUpRight, Loader2, Star, CheckCircle2, Clock } from 'lucide-react';
 import { format } from 'date-fns';
 import { formatCurrency } from '../utils';
 import CalendarPreview from './CalendarPreview';
+import StarRating from './StarRating';
 
 export default function Dashboard() {
   const [loading, setLoading] = useState(true);
@@ -11,7 +12,6 @@ export default function Dashboard() {
     upcomingGigs: 0,
     completedGigs: 0,
     starRating: 4.8,
-    heartRating: 95,
   });
 
   useEffect(() => {
@@ -51,34 +51,34 @@ export default function Dashboard() {
       </div>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div className="bg-black text-white p-8 rounded-[2rem] space-y-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="bg-black text-white p-8 rounded-[2rem] space-y-4 shadow-xl">
           <div className="flex items-center justify-between">
             <div className="p-3 bg-white/10 rounded-2xl">
-              <Clock className="w-6 h-6" />
+              <Clock className="w-6 h-6 text-white" />
             </div>
             <span className="text-xs font-bold uppercase tracking-widest text-white/50">Upcoming Gigs</span>
           </div>
           <div>
             <div className="text-4xl font-bold">{stats.upcomingGigs}</div>
-            <p className="text-white/40 text-sm mt-1">Confirmed events</p>
+            <p className="text-white/40 text-sm mt-1 font-medium">Confirmed events</p>
           </div>
         </div>
 
-        <div className="bg-emerald-500 text-white p-8 rounded-[2rem] space-y-4">
+        <div className="bg-emerald-500 text-white p-8 rounded-[2rem] space-y-4 shadow-xl">
           <div className="flex items-center justify-between">
             <div className="p-3 bg-white/10 rounded-2xl">
-              <CheckCircle2 className="w-6 h-6" />
+              <CheckCircle2 className="w-6 h-6 text-white" />
             </div>
             <span className="text-xs font-bold uppercase tracking-widest text-white/50">Completed Gigs</span>
           </div>
           <div>
             <div className="text-4xl font-bold">{stats.completedGigs}</div>
-            <p className="text-white/40 text-sm mt-1">Successfully delivered</p>
+            <p className="text-white/40 text-sm mt-1 font-medium">Successfully delivered</p>
           </div>
         </div>
 
-        <div className="bg-white border p-8 rounded-[2rem] space-y-4">
+        <div className="bg-white border p-8 rounded-[2rem] space-y-4 shadow-sm hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between">
             <div className="p-3 bg-yellow-50 rounded-2xl">
               <Star className="w-6 h-6 text-yellow-500 fill-yellow-500" />
@@ -87,25 +87,26 @@ export default function Dashboard() {
           </div>
           <div>
             <div className="text-4xl font-bold text-black">{stats.starRating}</div>
-            <p className="text-gray-400 text-sm mt-1">Average fan feedback</p>
-          </div>
-        </div>
-
-        <div className="bg-white border p-8 rounded-[2rem] space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="p-3 bg-red-50 rounded-2xl">
-              <Heart className="w-6 h-6 text-red-500 fill-red-500" />
-            </div>
-            <span className="text-xs font-bold uppercase tracking-widest text-gray-400">Heart Rating</span>
-          </div>
-          <div>
-            <div className="text-4xl font-bold text-black">{stats.heartRating}%</div>
-            <p className="text-gray-400 text-sm mt-1">Venue love score</p>
+            <p className="text-gray-400 text-sm mt-1 font-medium">Average fan feedback</p>
           </div>
         </div>
       </div>
 
       <CalendarPreview />
+
+      {/* Rating Demo Section */}
+      <div className="bg-white border p-8 rounded-[2rem] shadow-sm">
+        <div className="flex items-center gap-3 mb-6">
+          <div className="p-3 bg-emerald-50 rounded-2xl">
+            <TrendingUp className="w-6 h-6 text-emerald-600" />
+          </div>
+          <div>
+            <h2 className="text-2xl font-bold">Rate Your Experience</h2>
+            <p className="text-gray-500 text-sm">Organisers can leave feedback for artists here.</p>
+          </div>
+        </div>
+        <StarRating talentId="mock-artist-id" />
+      </div>
     </div>
   );
 }

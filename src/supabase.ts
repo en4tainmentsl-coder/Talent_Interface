@@ -25,7 +25,16 @@ const mockSupabase = {
   },
   from: (table: string) => {
     const queryBuilder: any = {
-      select: () => queryBuilder,
+      select: (columns: string) => {
+        if (table === 'Profiles_Users' && columns === 'Role') {
+          return {
+            eq: (col: string, val: string) => ({
+              single: async () => ({ data: { Role: 'organiser' }, error: null })
+            })
+          };
+        }
+        return queryBuilder;
+      },
       eq: () => queryBuilder,
       in: () => queryBuilder,
       order: () => queryBuilder,
