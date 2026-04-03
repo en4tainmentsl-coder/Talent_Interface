@@ -26,10 +26,10 @@ const mockSupabase = {
   from: (table: string) => {
     const queryBuilder: any = {
       select: (columns: string) => {
-        if (table === 'Profiles_Users' && columns === 'Role') {
+        if (table === 'profiles_users' && columns === 'role') {
           return {
             eq: (col: string, val: string) => ({
-              single: async () => ({ data: { Role: 'organiser' }, error: null })
+              single: async () => ({ data: { role: 'client' }, error: null })
             })
           };
         }
@@ -38,6 +38,8 @@ const mockSupabase = {
       eq: () => queryBuilder,
       in: () => queryBuilder,
       order: () => queryBuilder,
+      limit: () => queryBuilder,
+      is: () => queryBuilder,
       single: async () => ({ data: null, error: null }),
       upsert: async () => ({ data: null, error: null }),
       insert: async () => ({ data: null, error: null }),
@@ -52,6 +54,14 @@ const mockSupabase = {
       getPublicUrl: () => ({ data: { publicUrl: 'https://picsum.photos/200' } }),
     }),
   },
+  channel: (name: string) => {
+    const channelObj: any = {
+      on: () => channelObj,
+      subscribe: () => channelObj,
+    };
+    return channelObj;
+  },
+  removeChannel: () => {},
 } as any;
 
 // Add some mock data for genres if using mock
@@ -123,9 +133,29 @@ export type BookingRequest = {
   event_date: string;
   event_time: string;
   duration: string;
-  status: 'pending' | 'quoted' | 'confirmed' | 'rejected' | 'completed';
+  status: 'pending' | 'confirmed' | 'in_progress' | 'completed' | 'cancelled' | 'disputed';
   details: string;
   created_at: string;
+  google_calendar_event_link?: string;
+};
+
+export type QuoteRequest = {
+  id: string;
+  client_user_id: string;
+  event_date: string;
+  event_time: string;
+  duration_hours: number;
+  budget_min: number;
+  budget_max: number;
+  status: string;
+  venue_name: string;
+  details: string;
+  created_at: string;
+};
+
+export type CalendarEventLink = {
+  booking_id: string;
+  google_calendar_event_link: string;
 };
 
 export type Quotation = {

@@ -3,7 +3,7 @@ import { supabase, Profile, Genre } from '../supabase';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { Camera, Upload, Save, Loader2, CheckCircle2, X, Info, Image as ImageIcon, HelpCircle, Pencil } from 'lucide-react';
+import { Camera, Upload, Save, Loader2, CheckCircle2, X, Info, Image as ImageIcon, HelpCircle, Edit3 } from 'lucide-react';
 import { cn } from '../utils';
 import Markdown from 'react-markdown';
 import { ARTIST_AGREEMENT } from '../constants';
@@ -68,6 +68,7 @@ export default function ProfileEditor() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [kycData, setKycData] = useState<any>(null);
   const [genresList, setGenresList] = useState<Genre[]>([]);
   const [user, setUser] = useState<any>(null);
   const [showAgreement, setShowAgreement] = useState(false);
@@ -98,19 +99,22 @@ export default function ProfileEditor() {
       if (genresData) setGenresList(genresData);
 
       if (user) {
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', user.id)
-          .single();
+        const [profileRes, kycRes] = await Promise.all([
+          supabase.from('profiles').select('*').eq('id', user.id).single(),
+          supabase.from('talent_identity').select('*').eq('talent_id', user.id).single()
+        ]);
         
-        if (data) {
-          setProfile(data);
+        if (profileRes.data) {
+          setProfile(profileRes.data);
           reset({
-            ...data,
-            secondary_locations: data.secondary_locations || ['', '', '', ''],
-            genres: data.genres || ['', '', ''],
+            ...profileRes.data,
+            national_id_number: kycRes.data?.national_id_number || '',
+            secondary_locations: profileRes.data.secondary_locations || ['', '', '', ''],
+            genres: profileRes.data.genres || ['', '', ''],
           });
+        }
+        if (kycRes.data) {
+          setKycData(kycRes.data);
         }
       }
       setLoading(false);
@@ -130,14 +134,27 @@ export default function ProfileEditor() {
     setSaving(true);
     setShowAgreement(false);
     try {
-      const { error } = await supabase
+      const { national_id_number, ...profileValues } = pendingValues;
+
+      const { error: profileError } = await supabase
         .from('profiles')
         .upsert({
           id: user.id,
-          ...pendingValues,
+          ...profileValues,
           updated_at: new Date().toISOString(),
         });
-      if (error) throw error;
+      if (profileError) throw profileError;
+
+      // Update national ID in talent_identity
+      const { error: kycError } = await supabase
+        .from('talent_identity')
+        .upsert({
+          talent_id: user.id,
+          national_id_number,
+          updated_at: new Date().toISOString(),
+        });
+      if (kycError) throw kycError;
+
       alert('Profile saved successfully!');
     } catch (error: any) {
       alert(error.message);
@@ -154,7 +171,7 @@ export default function ProfileEditor() {
     }
   };
 
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>, bucket: string, field: keyof Profile, index?: number) => {
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>, bucket: string, field: string, index?: number) => {
     const file = event.target.files?.[0];
     if (!file || !user) return;
 
@@ -173,32 +190,45 @@ export default function ProfileEditor() {
         .from(bucket)
         .getPublicUrl(filePath);
 
-      // Update profile with new URL
-      let updateData: any = { id: user.id };
-      
-      if (typeof index === 'number' && field === 'profile_feature_urls') {
-        const currentFeatures = [...(profile?.profile_feature_urls || ['', '', ''])];
-        currentFeatures[index] = publicUrl;
-        updateData[field] = currentFeatures;
+      if (field === 'nic_front_url' || field === 'nic_back_url') {
+        const { error: kycError } = await supabase
+          .from('talent_identity')
+          .upsert({
+            talent_id: user.id,
+            [field]: publicUrl,
+            kyc_status: 'pending',
+            updated_at: new Date().toISOString(),
+          });
+        if (kycError) throw kycError;
+        setKycData(prev => ({ ...prev, [field]: publicUrl, kyc_status: 'pending' }));
       } else {
-        updateData[field] = publicUrl;
-      }
-
-      const { error: updateError } = await supabase
-        .from('profiles')
-        .upsert(updateData);
-
-      if (updateError) throw updateError;
-      
-      setProfile(prev => {
-        if (!prev) return null;
+        // Update profile with new URL
+        let updateData: any = { id: user.id };
+        
         if (typeof index === 'number' && field === 'profile_feature_urls') {
-          const currentFeatures = [...(prev.profile_feature_urls || ['', '', ''])];
+          const currentFeatures = [...(profile?.profile_feature_urls || ['', '', ''])];
           currentFeatures[index] = publicUrl;
-          return { ...prev, profile_feature_urls: currentFeatures };
+          updateData[field] = currentFeatures;
+        } else {
+          updateData[field] = publicUrl;
         }
-        return { ...prev, [field]: publicUrl };
-      });
+
+        const { error: updateError } = await supabase
+          .from('profiles')
+          .upsert(updateData);
+
+        if (updateError) throw updateError;
+        
+        setProfile(prev => {
+          if (!prev) return null;
+          if (typeof index === 'number' && field === 'profile_feature_urls') {
+            const currentFeatures = [...(prev.profile_feature_urls || ['', '', ''])];
+            currentFeatures[index] = publicUrl;
+            return { ...prev, profile_feature_urls: currentFeatures };
+          }
+          return { ...prev, [field as keyof Profile]: publicUrl };
+        });
+      }
     } catch (error: any) {
       alert(error.message);
     }
@@ -232,13 +262,14 @@ export default function ProfileEditor() {
             className="flex items-center gap-2 px-6 py-3 bg-emerald-600 text-white rounded-full hover:bg-emerald-700 transition-colors disabled:opacity-50"
           >
             {saving ? <Loader2 className="animate-spin w-4 h-4" /> : <Save className="w-4 h-4" />}
-            Save Profile
+            {saving ? 'Saving...' : 'Save Profile'}
           </button>
           <button 
             type="button"
+            onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
             className="flex items-center gap-2 px-6 py-2 bg-gray-100 text-gray-600 rounded-full hover:bg-gray-200 transition-colors text-sm font-medium justify-center"
           >
-            <Pencil className="w-4 h-4" />
+            <Edit3 className="w-4 h-4" />
             Edit Profile
           </button>
         </div>
@@ -284,13 +315,26 @@ export default function ProfileEditor() {
             </div>
 
             <div className="md:col-span-2 space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold">Identity Verification</h3>
+                {kycData?.kyc_status && (
+                  <span className={cn(
+                    "px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest",
+                    kycData.kyc_status === 'verified' ? "bg-emerald-100 text-emerald-700" :
+                    kycData.kyc_status === 'pending' ? "bg-yellow-100 text-yellow-700" :
+                    "bg-red-100 text-red-700"
+                  )}>
+                    {kycData.kyc_status}
+                  </span>
+                )}
+              </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <label className="text-sm font-medium flex items-center">
                     NIC Front <InfoTooltip content="Upload a clear photo of the front side of your National Identity Card. This is required for identity verification and to ensure the safety and trust of our platform." />
                   </label>
                   <div className="h-32 bg-gray-50 rounded-xl border border-dashed flex items-center justify-center relative overflow-hidden">
-                    {profile?.nic_front_url ? <img src={profile.nic_front_url} className="w-full h-full object-cover" /> : <Upload className="text-gray-300" />}
+                    {kycData?.nic_front_url ? <img src={kycData.nic_front_url} className="w-full h-full object-cover" /> : <Upload className="text-gray-300" />}
                     <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={(e) => handleFileUpload(e, 'documents', 'nic_front_url')} />
                   </div>
                 </div>
@@ -299,7 +343,7 @@ export default function ProfileEditor() {
                     NIC Back <InfoTooltip content="Upload a clear photo of the back of your National Identity Card. Both sides are required to complete your identity verification successfully." />
                   </label>
                   <div className="h-32 bg-gray-50 rounded-xl border border-dashed flex items-center justify-center relative overflow-hidden">
-                    {profile?.nic_back_url ? <img src={profile.nic_back_url} className="w-full h-full object-cover" /> : <Upload className="text-gray-300" />}
+                    {kycData?.nic_back_url ? <img src={kycData.nic_back_url} className="w-full h-full object-cover" /> : <Upload className="text-gray-300" />}
                     <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={(e) => handleFileUpload(e, 'documents', 'nic_back_url')} />
                   </div>
                 </div>
@@ -307,6 +351,7 @@ export default function ProfileEditor() {
               <div className="space-y-2">
                 <label className="text-sm font-medium">National ID Number</label>
                 <input {...register('national_id_number')} className="w-full p-3 rounded-xl border focus:ring-2 focus:ring-emerald-500 outline-none" />
+                {errors.national_id_number && <p className="text-red-500 text-xs">{errors.national_id_number.message}</p>}
               </div>
             </div>
           </div>

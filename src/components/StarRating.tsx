@@ -5,6 +5,7 @@ import { cn } from '../utils';
 
 interface StarRatingProps {
   talentId: string;
+  bookingId?: string; // Added bookingId prop
   onSuccess?: () => void;
 }
 
@@ -12,14 +13,14 @@ interface StarRatingProps {
  * StarRating Component
  * 
  * Business Rules:
- * - Store ratings in Reviews (Rating_1_to_5) and Reviews_5_Star (OverallRating)
- * - Only users with 'organiser' role are allowed to submit
+ * - Store ratings in reviews table
+ * - Only users with 'client' role are allowed to submit
  * - Rating value must be between 1 and 5 inclusive
  * - Ratings are final (no editing or deleting)
- * - Store ReviewerUserUUID on insert
- * - Clear, user-friendly error messages for non-organisers
+ * - Store reviewer_user_id on insert
+ * - Clear, user-friendly error messages for non-clients
  */
-export default function StarRating({ talentId, onSuccess }: StarRatingProps) {
+export default function StarRating({ talentId, bookingId, onSuccess }: StarRatingProps) {
   const [rating, setRating] = useState<number>(0);
   const [hover, setHover] = useState<number>(0);
   const [submitting, setSubmitting] = useState(false);
@@ -41,13 +42,13 @@ export default function StarRating({ talentId, onSuccess }: StarRatingProps) {
       }
 
       const { data, error: roleError } = await supabase
-        .from('Profiles_Users')
-        .select('Role')
-        .eq('UserUUID_PK', user.id)
+        .from('profiles_users')
+        .select('role')
+        .eq('id', user.id)
         .single();
 
       if (roleError) throw roleError;
-      setUserRole(data?.Role || null);
+      setUserRole(data?.role || null);
     } catch (err) {
       console.error('Error checking user role:', err);
     } finally {
@@ -56,8 +57,8 @@ export default function StarRating({ talentId, onSuccess }: StarRatingProps) {
   }
 
   const handleSubmit = async (selectedRating: number) => {
-    if (userRole !== 'organiser') {
-      setError('Only organisers are permitted to submit ratings.');
+    if (userRole !== 'client') {
+      setError('Only clients are permitted to submit ratings.');
       return;
     }
 
@@ -73,29 +74,37 @@ export default function StarRating({ talentId, onSuccess }: StarRatingProps) {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('User not authenticated');
 
-      // Insert into Reviews table
+      // If bookingId is provided, verify it's completed
+      if (bookingId) {
+        const { data: booking, error: bookingError } = await supabase
+          .from('bookings')
+          .select('booking_status')
+          .eq('id', bookingId)
+          .single();
+        
+        if (bookingError) throw bookingError;
+        if (booking?.booking_status !== 'completed') {
+          throw new Error('Ratings can only be submitted for completed bookings.');
+        }
+      }
+
+      // Insert into reviews table
       const { error: reviewError } = await supabase
-        .from('Reviews')
+        .from('reviews')
         .insert({
-          Rating_1_to_5: selectedRating,
-          ReviewerUserUUID: user.id,
-          TalentUUID: talentId,
-          CreatedAt: new Date().toISOString()
+          rating: selectedRating,
+          reviewer_user_id: user.id,
+          talent_id: talentId,
+          booking_id: bookingId || null, // TODO: Ensure booking_id is passed from parent
+          stage_presence_rating: selectedRating,
+          musical_ability_rating: selectedRating,
+          professionalism_rating: selectedRating,
+          sound_quality_rating: selectedRating,
+          audience_response_rating: selectedRating,
+          created_at: new Date().toISOString()
         });
 
       if (reviewError) throw reviewError;
-
-      // Insert into Reviews_5_Star table
-      const { error: starError } = await supabase
-        .from('Reviews_5_Star')
-        .insert({
-          OverallRating: selectedRating,
-          ReviewerUserUUID: user.id,
-          TalentUUID: talentId,
-          CreatedAt: new Date().toISOString()
-        });
-
-      if (starError) throw starError;
 
       setSuccess(true);
       setRating(selectedRating);
@@ -129,13 +138,13 @@ export default function StarRating({ talentId, onSuccess }: StarRatingProps) {
             <button
               key={star}
               type="button"
-              disabled={submitting || userRole !== 'organiser'}
+              disabled={submitting || userRole !== 'client'}
               onClick={() => handleSubmit(star)}
               onMouseEnter={() => setHover(star)}
               onMouseLeave={() => setHover(0)}
               className={cn(
                 "p-1 transition-all transform hover:scale-110 active:scale-95 disabled:opacity-50 disabled:hover:scale-100",
-                userRole !== 'organiser' ? "cursor-not-allowed" : "cursor-pointer"
+                userRole !== 'client' ? "cursor-not-allowed" : "cursor-pointer"
               )}
             >
               <Star
@@ -158,8 +167,8 @@ export default function StarRating({ talentId, onSuccess }: StarRatingProps) {
         </div>
       )}
 
-      {userRole !== 'organiser' && !error && (
-        <p className="text-xs text-gray-400 italic">Only organisers can rate artists.</p>
+      {userRole !== 'client' && !error && (
+        <p className="text-xs text-gray-400 italic">Only clients can rate artists.</p>
       )}
     </div>
   );

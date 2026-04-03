@@ -20,22 +20,93 @@ import ProfileEditor from './components/ProfileEditor';
 import BookingManager from './components/BookingManager';
 import Agreement from './components/Agreement';
 import Contracts from './components/Contracts';
+import InstallPrompt from './components/InstallPrompt';
+import NotificationsPanel from './components/NotificationsPanel';
 
 export default function App() {
   const [session, setSession] = useState<any>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [notifications, setNotifications] = useState<any[]>([]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
+      if (session?.user) {
+        fetchNotifications(session.user.id);
+        subscribeToNotifications(session.user.id);
+      }
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
+      if (session?.user) {
+        fetchNotifications(session.user.id);
+        subscribeToNotifications(session.user.id);
+      }
     });
 
     return () => subscription?.unsubscribe();
   }, []);
+
+  const fetchNotifications = async (userId: string) => {
+    const { data, error } = await supabase
+      .from('notifications')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(20);
+    
+    if (data) setNotifications(data);
+  };
+
+  const subscribeToNotifications = (userId: string) => {
+    const channel = supabase
+      .channel(`notifications:${userId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'notifications',
+          filter: `user_id=eq.${userId}`
+        },
+        (payload) => {
+          setNotifications(prev => [payload.new, ...prev].slice(0, 20));
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  };
+
+  const markAsRead = async (id: string) => {
+    const { error } = await supabase
+      .from('notifications')
+      .update({ read_at: new Date().toISOString() })
+      .eq('id', id);
+    
+    if (!error) {
+      setNotifications(prev => prev.map(n => n.id === id ? { ...n, read_at: new Date().toISOString() } : n));
+    }
+  };
+
+  const markAllRead = async () => {
+    if (!session?.user) return;
+    const { error } = await supabase
+      .from('notifications')
+      .update({ read_at: new Date().toISOString() })
+      .eq('user_id', session.user.id)
+      .is('read_at', null);
+    
+    if (!error) {
+      setNotifications(prev => prev.map(n => ({ ...n, read_at: n.read_at || new Date().toISOString() })));
+    }
+  };
+
+  const unreadCount = notifications.filter(n => !n.read_at).length;
 
   if (!session) {
     return (
@@ -60,7 +131,7 @@ export default function App() {
               onClick={() => supabase.auth.signInWithOAuth({ 
                 provider: 'google',
                 options: {
-                  scopes: 'https://www.googleapis.com/auth/calendar.readonly'
+                  scopes: 'https://www.googleapis.com/auth/calendar.events'
                 }
               })}
               className="w-full py-4 bg-black text-white rounded-2xl font-bold text-lg hover:bg-gray-800 transition-all transform hover:scale-[1.02] active:scale-[0.98] shadow-xl"
@@ -142,9 +213,16 @@ export default function App() {
               <h2 className="text-sm font-bold text-gray-400 uppercase tracking-widest">Artist Portal</h2>
             </div>
             <div className="flex items-center gap-4">
-              <button className="p-2 text-gray-400 hover:text-black transition-colors relative">
+              <button 
+                onClick={() => setIsNotificationsOpen(true)}
+                className="p-2 text-gray-400 hover:text-black transition-colors relative"
+              >
                 <Bell className="w-6 h-6" />
-                <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
+                {unreadCount > 0 && (
+                  <span className="absolute top-2 right-2 min-w-[18px] h-[18px] bg-red-500 rounded-full border-2 border-white text-[10px] font-bold text-white flex items-center justify-center px-1">
+                    {unreadCount}
+                  </span>
+                )}
               </button>
               <div className="h-8 w-[1px] bg-gray-200 mx-2"></div>
               <Link to="/profile" className="flex items-center gap-2 group">
@@ -167,6 +245,15 @@ export default function App() {
             </div>
         </main>
       </div>
+
+      <NotificationsPanel 
+        isOpen={isNotificationsOpen}
+        onClose={() => setIsNotificationsOpen(false)}
+        notifications={notifications}
+        onMarkRead={markAsRead}
+        onMarkAllRead={markAllRead}
+      />
+      <InstallPrompt />
     </Router>
   );
 }

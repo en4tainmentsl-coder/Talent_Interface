@@ -1,0 +1,20 @@
+{
+  "name": "En410 Artist Portal",
+  "short_name": "En410",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8f9fa",
+  "theme_color": "#10b981",
+  "icons": [
+    {
+      "src": "https://ik.imagekit.io/enfourreap/Picture1.png?updatedAt=1770550783858",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "https://ik.imagekit.io/enfourreap/Picture1.png?updatedAt=1770550783858",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

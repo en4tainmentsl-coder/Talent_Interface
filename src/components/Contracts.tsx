@@ -17,10 +17,10 @@ export default function Contracts() {
 
     // Contracts are confirmed or completed bookings
     const { data, error } = await supabase
-      .from('booking_requests')
+      .from('bookings')
       .select('*')
       .eq('talent_id', user.id)
-      .in('status', ['confirmed', 'completed'])
+      .in('status', ['confirmed', 'completed', 'in_progress'])
       .order('event_date', { ascending: false });
 
     if (data) {
