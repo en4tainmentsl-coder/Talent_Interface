@@ -1,7 +1,5 @@
 {
   "name": "En410",
   "description": "A comprehensive platform for Artists to get gigs.",
-  "requestFramePermissions": [
-    "camera"
-  ]
+  "requestFramePermissions": []
 }

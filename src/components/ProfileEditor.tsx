@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { supabase, Profile, Genre } from '../supabase';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -8,6 +9,7 @@ import { cn } from '../utils';
 import Markdown from 'react-markdown';
 import { ARTIST_AGREEMENT } from '../constants';
 import { motion, AnimatePresence } from 'motion/react';
+import { uploadToCloudinary } from "../utils/cloudinaryUpload";
 
 function InfoTooltip({ content }: { content: string }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -65,6 +67,7 @@ const profileSchema = z.object({
 type ProfileFormValues = z.infer<typeof profileSchema>;
 
 export default function ProfileEditor() {
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -156,6 +159,7 @@ export default function ProfileEditor() {
       if (kycError) throw kycError;
 
       alert('Profile saved successfully!');
+      navigate('/');
     } catch (error: any) {
       alert(error.message);
     } finally {
@@ -171,68 +175,135 @@ export default function ProfileEditor() {
     }
   };
 
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>, bucket: string, field: string, index?: number) => {
-    const file = event.target.files?.[0];
-    if (!file || !user) return;
+  const handleFileUpload = async (
+  event: React.ChangeEvent<HTMLInputElement>,
+  uploadTarget: "avatar" | "cover" | "feature" | "nic_front" | "nic_back",
+  featureIndex?: number // only used when uploadTarget === "feature"
+) => {
+  const file = event.target.files?.[0];
+  if (!file || !user) return;
 
-    const fileExt = file.name.split('.').pop();
-    const fileName = `${user.id}-${Math.random()}.${fileExt}`;
-    const filePath = `${fileName}`;
+  // Clear the input so the same file can be re-selected if needed
+  event.target.value = "";
 
-    try {
-      const { error: uploadError } = await supabase.storage
-        .from(bucket)
-        .upload(filePath, file);
+  try {
+    let result: { secure_url: string; public_id: string };
 
-      if (uploadError) throw uploadError;
+    // ── 1. Upload to the correct Cloudinary preset ──────────────────────────
+    if (uploadTarget === "avatar") {
+      result = await uploadToCloudinary(file, "en410_avatars");
 
-      const { data: { publicUrl } } = supabase.storage
-        .from(bucket)
-        .getPublicUrl(filePath);
+      // Save to profiles_talent.profile_photo_url
+      const { error } = await supabase
+        .from("profiles_talent")
+        .update({ profile_photo_url: result.secure_url })
+        .eq("user_id", user.id);
+      if (error) throw error;
 
-      if (field === 'nic_front_url' || field === 'nic_back_url') {
-        const { error: kycError } = await supabase
-          .from('talent_identity')
-          .upsert({
+      setProfile((prev) =>
+        prev ? { ...prev, profile_picture_url: result.secure_url } : null
+      );
+
+    } else if (uploadTarget === "cover") {
+      result = await uploadToCloudinary(file, "en410_artist_profile");
+
+      // Save to profiles_talent.profile_photo_url
+      // (adjust column name below if your cover uses a different column)
+      const { error } = await supabase
+        .from("profiles_talent")
+        .update({ profile_photo_url: result.secure_url })
+        .eq("user_id", user.id);
+      if (error) throw error;
+
+      setProfile((prev) =>
+        prev ? { ...prev, profile_cover_url: result.secure_url } : null
+      );
+
+    } else if (uploadTarget === "feature") {
+      if (featureIndex === undefined) throw new Error("featureIndex required");
+
+      // Tag is PFP_1, PFP_2, or PFP_3 (1-based)
+      const tag = `PFP_${featureIndex + 1}`;
+      result = await uploadToCloudinary(file, "en410_artist_portfolio", tag);
+
+      // Map index → column name in talent_media
+      const columnMap: Record<number, string> = {
+        0: "pfp_1_url",
+        1: "pfp_2_url",
+        2: "pfp_3_url",
+      };
+      const column = columnMap[featureIndex];
+      if (!column) throw new Error("Invalid feature index");
+
+      // Upsert into talent_media (creates row if it doesn't exist yet)
+      const { error } = await supabase
+        .from("talent_media")
+        .upsert(
+          { talent_id: user.id, [column]: result.secure_url },
+          { onConflict: "talent_id" }
+        );
+      if (error) throw error;
+
+      // Update local state
+      setProfile((prev) => {
+        if (!prev) return null;
+        const updated = [...(prev.profile_feature_urls ?? ["", "", ""])];
+        updated[featureIndex] = result.secure_url;
+        return { ...prev, profile_feature_urls: updated };
+      });
+
+    } else if (uploadTarget === "nic_front") {
+      result = await uploadToCloudinary(file, "en410_artist_kyc");
+
+      // Save to talent_identity.nic_front_url
+      const { error } = await supabase
+        .from("talent_identity")
+        .upsert(
+          {
             talent_id: user.id,
-            [field]: publicUrl,
-            kyc_status: 'pending',
+            nic_front_url: result.secure_url,
+            kyc_status: "submitted",
             updated_at: new Date().toISOString(),
-          });
-        if (kycError) throw kycError;
-        setKycData(prev => ({ ...prev, [field]: publicUrl, kyc_status: 'pending' }));
-      } else {
-        // Update profile with new URL
-        let updateData: any = { id: user.id };
-        
-        if (typeof index === 'number' && field === 'profile_feature_urls') {
-          const currentFeatures = [...(profile?.profile_feature_urls || ['', '', ''])];
-          currentFeatures[index] = publicUrl;
-          updateData[field] = currentFeatures;
-        } else {
-          updateData[field] = publicUrl;
-        }
+          },
+          { onConflict: "talent_id" }
+        );
+      if (error) throw error;
 
-        const { error: updateError } = await supabase
-          .from('profiles')
-          .upsert(updateData);
+      setKycData((prev: any) => ({
+        ...prev,
+        nic_front_url: result.secure_url,
+        kyc_status: "submitted",
+      }));
 
-        if (updateError) throw updateError;
-        
-        setProfile(prev => {
-          if (!prev) return null;
-          if (typeof index === 'number' && field === 'profile_feature_urls') {
-            const currentFeatures = [...(prev.profile_feature_urls || ['', '', ''])];
-            currentFeatures[index] = publicUrl;
-            return { ...prev, profile_feature_urls: currentFeatures };
-          }
-          return { ...prev, [field as keyof Profile]: publicUrl };
-        });
-      }
-    } catch (error: any) {
-      alert(error.message);
+    } else if (uploadTarget === "nic_back") {
+      result = await uploadToCloudinary(file, "en410_artist_kyc");
+
+      // Save to talent_identity.nic_back_url
+      const { error } = await supabase
+        .from("talent_identity")
+        .upsert(
+          {
+            talent_id: user.id,
+            nic_back_url: result.secure_url,
+            kyc_status: "submitted",
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "talent_id" }
+        );
+      if (error) throw error;
+
+      setKycData((prev: any) => ({
+        ...prev,
+        nic_back_url: result.secure_url,
+        kyc_status: "submitted",
+      }));
     }
-  };
+
+    alert("Uploaded successfully!");
+  } catch (error: any) {
+    alert(`Upload failed: ${error.message}`);
+  }
+};
 
   if (loading) return <div className="flex items-center justify-center h-screen"><Loader2 className="animate-spin" /></div>;
 
@@ -288,7 +359,12 @@ export default function ProfileEditor() {
                   <Camera className="text-gray-400" />
                 )}
                 <label className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center cursor-pointer transition-opacity">
-                  <input type="file" className="hidden" onChange={(e) => handleFileUpload(e, 'avatars', 'profile_picture_url')} accept="image/*" />
+                  <input
+                   type="file"
+                    className="hidden"
+                    onChange={(e) => handleFileUpload(e, "avatar")}
+                    accept="image/*"
+                  />
                   <Upload className="text-white w-6 h-6" />
                 </label>
               </div>
@@ -305,7 +381,12 @@ export default function ProfileEditor() {
                   <ImageIcon className="text-gray-400" />
                 )}
                 <label className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center cursor-pointer transition-opacity">
-                  <input type="file" className="hidden" onChange={(e) => handleFileUpload(e, 'covers', 'profile_cover_url')} accept="image/*" />
+                  <input
+                  type="file"
+                  className="hidden"
+                  onChange={(e) => handleFileUpload(e, "cover")}
+                  accept="image/*"
+                />
                   <Upload className="text-white w-6 h-6" />
                 </label>
               </div>
@@ -335,7 +416,11 @@ export default function ProfileEditor() {
                   </label>
                   <div className="h-32 bg-gray-50 rounded-xl border border-dashed flex items-center justify-center relative overflow-hidden">
                     {kycData?.nic_front_url ? <img src={kycData.nic_front_url} className="w-full h-full object-cover" /> : <Upload className="text-gray-300" />}
-                    <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={(e) => handleFileUpload(e, 'documents', 'nic_front_url')} />
+                  <input
+                    type="file"
+                    className="absolute inset-0 opacity-0 cursor-pointer"
+                    onChange={(e) => handleFileUpload(e, "nic_front")}
+                  />
                   </div>
                 </div>
                 <div className="space-y-2">
@@ -344,7 +429,11 @@ export default function ProfileEditor() {
                   </label>
                   <div className="h-32 bg-gray-50 rounded-xl border border-dashed flex items-center justify-center relative overflow-hidden">
                     {kycData?.nic_back_url ? <img src={kycData.nic_back_url} className="w-full h-full object-cover" /> : <Upload className="text-gray-300" />}
-                    <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={(e) => handleFileUpload(e, 'documents', 'nic_back_url')} />
+                  <input
+                    type="file"
+                    className="absolute inset-0 opacity-0 cursor-pointer"
+                    onChange={(e) => handleFileUpload(e, "nic_back")}
+                  />
                   </div>
                 </div>
               </div>
@@ -370,8 +459,12 @@ export default function ProfileEditor() {
                     <ImageIcon className="text-gray-300 w-8 h-8" />
                   )}
                   <label className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center cursor-pointer transition-opacity">
-                    <input type="file" className="hidden" onChange={(e) => handleFileUpload(e, 'features', 'profile_feature_urls', idx)} accept="image/*" />
-                    <Upload className="text-white w-6 h-6" />
+                  <input
+                    type="file"
+                    className="hidden"
+                    onChange={(e) => handleFileUpload(e, "feature", idx)}
+                    accept="image/*"
+/>                    <Upload className="text-white w-6 h-6" />
                   </label>
                 </div>
               ))}

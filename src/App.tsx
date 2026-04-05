@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Link, NavLink, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Link, NavLink, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from './supabase';
 import { 
   LayoutDashboard, 
@@ -25,6 +25,7 @@ import NotificationsPanel from './components/NotificationsPanel';
 
 export default function App() {
   const [session, setSession] = useState<any>(null);
+  const [isBypassed, setIsBypassed] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
@@ -108,7 +109,7 @@ export default function App() {
 
   const unreadCount = notifications.filter(n => !n.read_at).length;
 
-  if (!session) {
+  if (!session && !isBypassed) {
     return (
       <div className="min-h-screen bg-[#f8f9fa] flex items-center justify-center p-4">
         <div className="max-w-md w-full bg-white rounded-[2.5rem] shadow-2xl p-10 space-y-8 text-center border border-gray-100">
@@ -131,13 +132,22 @@ export default function App() {
               onClick={() => supabase.auth.signInWithOAuth({ 
                 provider: 'google',
                 options: {
-                  scopes: 'https://www.googleapis.com/auth/calendar.events'
+                  scopes: 'https://www.googleapis.com/auth/calendar.events',
+                  redirectTo: window.location.origin + '/profile'
                 }
               })}
               className="w-full py-4 bg-black text-white rounded-2xl font-bold text-lg hover:bg-gray-800 transition-all transform hover:scale-[1.02] active:scale-[0.98] shadow-xl"
             >
               Sign in with Google
             </button>
+            
+            <button 
+              onClick={() => setIsBypassed(true)}
+              className="w-full py-4 bg-white text-gray-600 border-2 border-gray-100 rounded-2xl font-bold text-lg hover:bg-gray-50 transition-all transform hover:scale-[1.02] active:scale-[0.98]"
+            >
+              Bypass Login (Dev Only)
+            </button>
+
             <p className="text-xs text-gray-400">By signing in, you agree to our Terms of Service.</p>
           </div>
         </div>
@@ -145,8 +155,15 @@ export default function App() {
     );
   }
 
+  const userMetadata = session?.user?.user_metadata || {
+    full_name: 'Guest Artist',
+    avatar_url: 'https://ui-avatars.com/api/?name=Guest+Artist&background=random'
+  };
+  const userEmail = session?.user?.email || 'guest@example.com';
+
   return (
     <Router>
+      <RedirectHandler />
       <div className="min-h-screen bg-[#f8f9fa] flex flex-col md:flex-row">
         {/* Sidebar */}
         <aside className={cn(
@@ -182,17 +199,20 @@ export default function App() {
             <div className="pt-6 border-t mt-auto">
               <div className="flex items-center gap-3 px-4 py-3 mb-4 bg-gray-50 rounded-2xl">
                 <img 
-                  src={session.user.user_metadata.avatar_url} 
+                  src={userMetadata.avatar_url} 
                   className="w-10 h-10 rounded-full border-2 border-white shadow-sm"
                   alt="Avatar"
                 />
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-bold truncate">{session.user.user_metadata.full_name}</p>
-                  <p className="text-xs text-gray-500 truncate">{session.user.email}</p>
+                  <p className="text-sm font-bold truncate">{userMetadata.full_name}</p>
+                  <p className="text-xs text-gray-500 truncate">{userEmail}</p>
                 </div>
               </div>
               <button 
-                onClick={() => supabase.auth.signOut()}
+                onClick={() => {
+                  if (isBypassed) setIsBypassed(false);
+                  else supabase.auth.signOut();
+                }}
                 className="w-full flex items-center gap-3 px-4 py-3 text-red-600 hover:bg-red-50 rounded-2xl transition-colors font-bold text-sm"
               >
                 <LogOut className="w-5 h-5" />
@@ -273,4 +293,21 @@ function NavItem({ to, icon, label }: { to: string; icon: React.ReactNode; label
       {label}
     </NavLink>
   );
+}
+
+function RedirectHandler() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [hasRedirected, setHasRedirected] = useState(false);
+
+  useEffect(() => {
+    if (location.pathname !== '/') {
+      setHasRedirected(true);
+    } else if (!hasRedirected && location.pathname === '/') {
+      navigate('/profile');
+      setHasRedirected(true);
+    }
+  }, [hasRedirected, location.pathname, navigate]);
+
+  return null;
 }
