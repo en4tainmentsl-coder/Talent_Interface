@@ -2,60 +2,71 @@ import { supabase } from "../supabase";
 
 export type CloudinaryUploadResult = {
   secure_url: string;
-  public_id: string;
+  public_id:  string;
 };
 
-/**
- * Gets a signed upload signature from the Edge Function,
- * then uploads the file directly to Cloudinary.
- */
+const PRESET_TO_ASSET_TYPE: Record<string, string> = {
+  'en410_avatars':          'talent_avatar',
+  'en410_artist_profile':   'talent_cover',
+  'en410_artist_portfolio': 'talent_portfolio',
+  'en410_artist_kyc':       'kyc_front',
+}
+
 export async function uploadToCloudinary(
-  file: File,
+  file:         File,
   uploadPreset: string,
-  tags?: string
+  _tag?:        string
 ): Promise<CloudinaryUploadResult> {
-  // 1. Get the session token to pass to the Edge Function
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
 
-  if (!session) throw new Error("You must be logged in to upload files.");
+  // 1. Map preset name to asset_type
+  const assetType = PRESET_TO_ASSET_TYPE[uploadPreset]
+  if (!assetType) throw new Error(`Unknown upload preset: ${uploadPreset}`)
 
-  // 2. Request a signed upload from our Edge Function
+  // 2. Get current user
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('You must be logged in to upload files.')
+
+  // 3. Get signature from Edge Function
   const { data: signData, error: signError } = await supabase.functions.invoke(
-    "cloudinary-sign",
-    {
-      body: { uploadPreset, tags: tags ?? null },
-      headers: { Authorization: `Bearer ${session.access_token}` },
-    }
-  );
-
-  if (signError) throw new Error(`Signing failed: ${signError.message}`);
-
-  const { signature, timestamp, apiKey, cloudName } = signData;
-
-  // 3. Build the FormData for Cloudinary
-  const formData = new FormData();
-  formData.append("file", file);
-  formData.append("upload_preset", uploadPreset);
-  formData.append("api_key", apiKey);
-  formData.append("timestamp", timestamp);
-  formData.append("signature", signature);
-  if (tags) formData.append("tags", tags);
-
-  // 4. POST directly to Cloudinary
-  const response = await fetch(
-    `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
-    { method: "POST", body: formData }
-  );
-
-  if (!response.ok) {
-    const errorData = await response.json();
-    throw new Error(
-      errorData.error?.message ?? "Cloudinary upload failed"
-    );
+    'cloudinary-sign',
+    { body: { asset_type: assetType, user_id: user.id } }
+  )
+  if (signError || !signData?.signature) {
+    throw new Error(signError?.message ?? 'Failed to get upload signature')
   }
 
-  const result = await response.json();
-  return { secure_url: result.secure_url, public_id: result.public_id };
+  const {
+    signature,
+    timestamp,
+    cloud_name,
+    api_key,
+    upload_preset,
+    folder,
+    access_mode,
+  } = signData
+
+  // 4. Build FormData and upload directly to Cloudinary
+  const formData = new FormData()
+  formData.append('file',          file)
+  formData.append('api_key',       api_key)
+  formData.append('timestamp',     String(timestamp))
+  formData.append('signature',     signature)
+  formData.append('upload_preset', upload_preset)
+  formData.append('folder',        folder)
+  if (access_mode === 'authenticated') {
+    formData.append('access_mode', 'authenticated')
+  }
+
+  const response = await fetch(
+    `https://api.cloudinary.com/v1_1/${cloud_name}/image/upload`,
+    { method: 'POST', body: formData }
+  )
+
+  const result = await response.json()
+
+  if (result.error) {
+    throw new Error(result.error.message ?? 'Cloudinary upload failed')
+  }
+
+  return { secure_url: result.secure_url, public_id: result.public_id }
 }

@@ -178,22 +178,19 @@ export default function ProfileEditor() {
   const handleFileUpload = async (
   event: React.ChangeEvent<HTMLInputElement>,
   uploadTarget: "avatar" | "cover" | "feature" | "nic_front" | "nic_back",
-  featureIndex?: number // only used when uploadTarget === "feature"
+  featureIndex?: number
 ) => {
   const file = event.target.files?.[0];
   if (!file || !user) return;
 
-  // Clear the input so the same file can be re-selected if needed
   event.target.value = "";
 
   try {
     let result: { secure_url: string; public_id: string };
 
-    // ── 1. Upload to the correct Cloudinary preset ──────────────────────────
     if (uploadTarget === "avatar") {
       result = await uploadToCloudinary(file, "en410_avatars");
 
-      // Save to profiles_talent.profile_photo_url
       const { error } = await supabase
         .from("profiles_talent")
         .update({ profile_photo_url: result.secure_url })
@@ -207,11 +204,9 @@ export default function ProfileEditor() {
     } else if (uploadTarget === "cover") {
       result = await uploadToCloudinary(file, "en410_artist_profile");
 
-      // Save to profiles_talent.profile_photo_url
-      // (adjust column name below if your cover uses a different column)
       const { error } = await supabase
         .from("profiles_talent")
-        .update({ profile_photo_url: result.secure_url })
+        .update({ cover_photo_url: result.secure_url })
         .eq("user_id", user.id);
       if (error) throw error;
 
@@ -222,11 +217,9 @@ export default function ProfileEditor() {
     } else if (uploadTarget === "feature") {
       if (featureIndex === undefined) throw new Error("featureIndex required");
 
-      // Tag is PFP_1, PFP_2, or PFP_3 (1-based)
       const tag = `PFP_${featureIndex + 1}`;
       result = await uploadToCloudinary(file, "en410_artist_portfolio", tag);
 
-      // Map index → column name in talent_media
       const columnMap: Record<number, string> = {
         0: "pfp_1_url",
         1: "pfp_2_url",
@@ -235,7 +228,6 @@ export default function ProfileEditor() {
       const column = columnMap[featureIndex];
       if (!column) throw new Error("Invalid feature index");
 
-      // Upsert into talent_media (creates row if it doesn't exist yet)
       const { error } = await supabase
         .from("talent_media")
         .upsert(
@@ -244,7 +236,6 @@ export default function ProfileEditor() {
         );
       if (error) throw error;
 
-      // Update local state
       setProfile((prev) => {
         if (!prev) return null;
         const updated = [...(prev.profile_feature_urls ?? ["", "", ""])];
@@ -255,15 +246,14 @@ export default function ProfileEditor() {
     } else if (uploadTarget === "nic_front") {
       result = await uploadToCloudinary(file, "en410_artist_kyc");
 
-      // Save to talent_identity.nic_front_url
       const { error } = await supabase
         .from("talent_identity")
         .upsert(
           {
-            talent_id: user.id,
-            nic_front_url: result.secure_url,
-            kyc_status: "submitted",
-            updated_at: new Date().toISOString(),
+            talent_id:           user.id,
+            nic_front_public_id: result.public_id,
+            kyc_status:          "submitted",
+            updated_at:          new Date().toISOString(),
           },
           { onConflict: "talent_id" }
         );
@@ -272,21 +262,20 @@ export default function ProfileEditor() {
       setKycData((prev: any) => ({
         ...prev,
         nic_front_url: result.secure_url,
-        kyc_status: "submitted",
+        kyc_status:    "submitted",
       }));
 
     } else if (uploadTarget === "nic_back") {
       result = await uploadToCloudinary(file, "en410_artist_kyc");
 
-      // Save to talent_identity.nic_back_url
       const { error } = await supabase
         .from("talent_identity")
         .upsert(
           {
-            talent_id: user.id,
-            nic_back_url: result.secure_url,
-            kyc_status: "submitted",
-            updated_at: new Date().toISOString(),
+            talent_id:          user.id,
+            nic_back_public_id: result.public_id,
+            kyc_status:         "submitted",
+            updated_at:         new Date().toISOString(),
           },
           { onConflict: "talent_id" }
         );
@@ -295,7 +284,7 @@ export default function ProfileEditor() {
       setKycData((prev: any) => ({
         ...prev,
         nic_back_url: result.secure_url,
-        kyc_status: "submitted",
+        kyc_status:   "submitted",
       }));
     }
 
