@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 
-const rawUrl = 'https://sqovyodycuyajmumcjnn.supabase.co';
-const rawKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNxb3Z5b2R5Y3V5YWptdW1jam5uIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA4NDkzODIsImV4cCI6MjA4NjQyNTM4Mn0.TAxnooD1SGKwcyMqJCwtKyHKhasTD7oEz1u40oLdy9s';
+const rawUrl = process.env.SUPABASE_URL || '';
+const rawKey = process.env.SUPABASE_ANON_KEY || '';
 
 const isValidUrl = (url: any): url is string => {
   return typeof url === 'string' && url.trim().startsWith('http');
