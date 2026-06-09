@@ -29,36 +29,36 @@ export default function App() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
+  const [talentAvatarUrl, setTalentAvatarUrl] = useState<string | null>(null);
 
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      if (session?.user) {
-        fetchNotifications(session.user.id);
-        subscribeToNotifications(session.user.id);
+  const fetchTalentAvatar = async (userId: string) => {
+    try {
+      const { data } = await supabase
+        .from('profiles_talent')
+        .select('profile_photo_url')
+        .eq('user_id', userId)
+        .single();
+      if (data?.profile_photo_url) {
+        setTalentAvatarUrl(data.profile_photo_url);
       }
-    });
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      if (session?.user) {
-        fetchNotifications(session.user.id);
-        subscribeToNotifications(session.user.id);
-      }
-    });
-
-    return () => subscription?.unsubscribe();
-  }, []);
+    } catch (err) {
+      console.error('Error fetching talent avatar:', err);
+    }
+  };
 
   const fetchNotifications = async (userId: string) => {
-    const { data, error } = await supabase
-      .from('notifications')
-      .select('*')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false })
-      .limit(20);
-    
-    if (data) setNotifications(data);
+    try {
+      const { data, error } = await supabase
+        .from('notifications')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(20);
+      
+      if (data) setNotifications(data);
+    } catch (err) {
+      console.error('Error fetching notifications:', err);
+    }
   };
 
   const subscribeToNotifications = (userId: string) => {
@@ -82,6 +82,36 @@ export default function App() {
       supabase.removeChannel(channel);
     };
   };
+
+  // 1. Manage auth session
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+    });
+
+    return () => subscription?.unsubscribe();
+  }, []);
+
+  // 2. Manage fetching data and subscription when user ID changes (or login happens)
+  useEffect(() => {
+    if (!session?.user?.id) {
+      setNotifications([]);
+      setTalentAvatarUrl(null);
+      return;
+    }
+
+    fetchNotifications(session.user.id);
+    fetchTalentAvatar(session.user.id);
+    const unsubscribe = subscribeToNotifications(session.user.id);
+
+    return () => {
+      unsubscribe();
+    };
+  }, [session?.user?.id]);
 
   const markAsRead = async (id: string) => {
     const { error } = await supabase
@@ -222,7 +252,7 @@ export default function App() {
             <div className="pt-6 border-t mt-auto">
               <div className="flex items-center gap-3 px-4 py-3 mb-4 bg-gray-50 rounded-2xl">
                 <img 
-                  src={userMetadata.avatar_url} 
+                  src={talentAvatarUrl || userMetadata.avatar_url} 
                   className="w-10 h-10 rounded-full border-2 border-white shadow-sm"
                   alt="Avatar"
                 />
