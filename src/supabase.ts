@@ -1,11 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 
-const getEnvVar = (name: string) => {
-  return (import.meta as any).env?.[`VITE_${name}`] || process.env[name];
-};
-
-const rawUrl = getEnvVar('SUPABASE_URL');
-const rawKey = getEnvVar('SUPABASE_ANON_KEY');
+const rawUrl = 'https://sqovyodycuyajmumcjnn.supabase.co';
+const rawKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNxb3Z5b2R5Y3V5YWptdW1jam5uIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA4NDkzODIsImV4cCI6MjA4NjQyNTM4Mn0.TAxnooD1SGKwcyMqJCwtKyHKhasTD7oEz1u40oLdy9s';
 
 const isValidUrl = (url: any): url is string => {
   return typeof url === 'string' && url.trim().startsWith('http');

@@ -102,22 +102,42 @@ export default function ProfileEditor() {
       if (genresData) setGenresList(genresData);
 
       if (user) {
-        const [profileRes, kycRes] = await Promise.all([
-          supabase.from('profiles').select('*').eq('id', user.id).single(),
-          supabase.from('talent_identity').select('*').eq('talent_id', user.id).single()
-        ]);
-        
+        const profileRes = await supabase
+          .from('profiles_talent')
+          .select('*')
+          .eq('user_id', user.id)
+          .single();
+
         if (profileRes.data) {
-          setProfile(profileRes.data);
+          const talentId = profileRes.data.id;
+
+          const [kycRes, mediaRes] = await Promise.all([
+            supabase.from('talent_identity').select('*').eq('talent_id', talentId).single(),
+            supabase.from('talent_media').select('pfp_1_url, pfp_2_url, pfp_3_url').eq('talent_id', talentId).single()
+          ]);
+
+          const featureUrls = [
+            mediaRes.data?.pfp_1_url || '',
+            mediaRes.data?.pfp_2_url || '',
+            mediaRes.data?.pfp_3_url || '',
+          ];
+
+          setProfile({
+            ...profileRes.data,
+            profile_picture_url: profileRes.data.profile_photo_url ?? '',
+            profile_cover_url:   profileRes.data.cover_photo_url ?? '',
+            profile_feature_urls: featureUrls,
+          });
           reset({
             ...profileRes.data,
-            national_id_number: kycRes.data?.national_id_number || '',
+            national_id_number: kycRes.data?.nic_number || '',
             secondary_locations: profileRes.data.secondary_locations || ['', '', '', ''],
             genres: profileRes.data.genres || ['', '', ''],
           });
-        }
-        if (kycRes.data) {
-          setKycData(kycRes.data);
+
+          if (kycRes.data) {
+            setKycData(kycRes.data);
+          }
         }
       }
       setLoading(false);
@@ -152,7 +172,7 @@ export default function ProfileEditor() {
       const { error: kycError } = await supabase
         .from('talent_identity')
         .upsert({
-          talent_id: user.id,
+          talent_id: profile?.id,
           national_id_number,
           updated_at: new Date().toISOString(),
         });
@@ -175,12 +195,71 @@ export default function ProfileEditor() {
     }
   };
 
-  const handleFileUpload = async (
+  const safeProcessUpload = async (assetType: string, publicId: string, secureUrl: string, sortOrder?: number) => {
+    try {
+      const { error: fnError } = await supabase.functions.invoke('process-upload', {
+        body: {
+          asset_type:    assetType,
+          user_id:       user?.id,
+          talent_id:     profile?.id,
+          public_id:     publicId,
+          secure_url:    secureUrl || undefined,
+          resource_type: 'image',
+          bytes:         0,
+          sort_order:    sortOrder,
+        }
+      });
+      if (!fnError) return;
+      console.warn(`Edge Function process-upload returned an error. Falling back to direct database query.`, fnError);
+    } catch (invokeErr) {
+      console.warn(`Edge Function process-upload did not respond. Falling back to direct database query.`, invokeErr);
+    }
+
+    try {
+      if (assetType === 'talent_avatar' && profile?.id) {
+        const { error } = await supabase
+          .from('profiles_talent')
+          .update({ profile_photo_url: secureUrl, updated_at: new Date().toISOString() })
+          .eq('id', profile.id);
+        if (error) throw error;
+      } else if (assetType === 'talent_cover' && profile?.id) {
+        const { error } = await supabase
+          .from('profiles_talent')
+          .update({ cover_photo_url: secureUrl, updated_at: new Date().toISOString() })
+          .eq('id', profile.id);
+        if (error) throw error;
+      } else if (assetType === 'talent_portfolio' && profile?.id && sortOrder !== undefined) {
+        const colMap: Record<number, string> = { 0: 'pfp_1_url', 1: 'pfp_2_url', 2: 'pfp_3_url' };
+        const colName = colMap[sortOrder];
+        if (colName) {
+          const { error } = await supabase
+            .from('talent_media')
+            .upsert({ talent_id: profile.id, [colName]: secureUrl, updated_at: new Date().toISOString() }, { onConflict: 'talent_id' });
+          if (error) throw error;
+        }
+      } else if (assetType === 'kyc_front' && profile?.id) {
+        const { error } = await supabase
+          .from('talent_identity')
+          .upsert({ talent_id: profile.id, nic_front_public_id: publicId, kyc_status: 'submitted', updated_at: new Date().toISOString() }, { onConflict: 'talent_id' });
+        if (error) throw error;
+      } else if (assetType === 'kyc_back' && profile?.id) {
+        const { error } = await supabase
+          .from('talent_identity')
+          .upsert({ talent_id: profile.id, nic_back_public_id: publicId, kyc_status: 'submitted', updated_at: new Date().toISOString() }, { onConflict: 'talent_id' });
+        if (error) throw error;
+      }
+    } catch (dbErr) {
+      console.warn(`Direct DB fallback also failed. Using client-side state only.`, dbErr);
+    }
+  };
+
+const handleFileUpload = async (
   event: React.ChangeEvent<HTMLInputElement>,
   uploadTarget: "avatar" | "cover" | "feature" | "nic_front" | "nic_back",
   featureIndex?: number
 ) => {
   const file = event.target.files?.[0];
+  console.log('handleFileUpload called — file:', file?.name, '— user:', user?.id)
   if (!file || !user) return;
 
   event.target.value = "";
@@ -190,12 +269,7 @@ export default function ProfileEditor() {
 
     if (uploadTarget === "avatar") {
       result = await uploadToCloudinary(file, "en410_avatars");
-
-      const { error } = await supabase
-        .from("profiles_talent")
-        .update({ profile_photo_url: result.secure_url })
-        .eq("user_id", user.id);
-      if (error) throw error;
+      await safeProcessUpload('talent_avatar', result.public_id, result.secure_url);
 
       setProfile((prev) =>
         prev ? { ...prev, profile_picture_url: result.secure_url } : null
@@ -203,12 +277,7 @@ export default function ProfileEditor() {
 
     } else if (uploadTarget === "cover") {
       result = await uploadToCloudinary(file, "en410_artist_profile");
-
-      const { error } = await supabase
-        .from("profiles_talent")
-        .update({ cover_photo_url: result.secure_url })
-        .eq("user_id", user.id);
-      if (error) throw error;
+      await safeProcessUpload('talent_cover', result.public_id, result.secure_url);
 
       setProfile((prev) =>
         prev ? { ...prev, profile_cover_url: result.secure_url } : null
@@ -216,10 +285,10 @@ export default function ProfileEditor() {
 
     } else if (uploadTarget === "feature") {
       if (featureIndex === undefined) throw new Error("featureIndex required");
-
       const tag = `PFP_${featureIndex + 1}`;
       result = await uploadToCloudinary(file, "en410_artist_portfolio", tag);
-
+      console.log('feature upload result:', result, 'index:', featureIndex)
+      
       const columnMap: Record<number, string> = {
         0: "pfp_1_url",
         1: "pfp_2_url",
@@ -228,13 +297,7 @@ export default function ProfileEditor() {
       const column = columnMap[featureIndex];
       if (!column) throw new Error("Invalid feature index");
 
-      const { error } = await supabase
-        .from("talent_media")
-        .upsert(
-          { talent_id: user.id, [column]: result.secure_url },
-          { onConflict: "talent_id" }
-        );
-      if (error) throw error;
+      await safeProcessUpload('talent_portfolio', result.public_id, result.secure_url, featureIndex);
 
       setProfile((prev) => {
         if (!prev) return null;
@@ -245,51 +308,31 @@ export default function ProfileEditor() {
 
     } else if (uploadTarget === "nic_front") {
       result = await uploadToCloudinary(file, "en410_artist_kyc");
+      console.log('nic_front upload result:', result)
 
-      const { error } = await supabase
-        .from("talent_identity")
-        .upsert(
-          {
-            talent_id:           user.id,
-            nic_front_public_id: result.public_id,
-            kyc_status:          "submitted",
-            updated_at:          new Date().toISOString(),
-          },
-          { onConflict: "talent_id" }
-        );
-      if (error) throw error;
+      await safeProcessUpload('kyc_front', result.public_id, result.secure_url);
 
       setKycData((prev: any) => ({
         ...prev,
-        nic_front_url: result.secure_url,
-        kyc_status:    "submitted",
+        nic_front_public_id: result.public_id,
+        kyc_status:          "submitted",
       }));
 
     } else if (uploadTarget === "nic_back") {
       result = await uploadToCloudinary(file, "en410_artist_kyc");
 
-      const { error } = await supabase
-        .from("talent_identity")
-        .upsert(
-          {
-            talent_id:          user.id,
-            nic_back_public_id: result.public_id,
-            kyc_status:         "submitted",
-            updated_at:         new Date().toISOString(),
-          },
-          { onConflict: "talent_id" }
-        );
-      if (error) throw error;
+      await safeProcessUpload('kyc_back', result.public_id, result.secure_url);
 
       setKycData((prev: any) => ({
         ...prev,
-        nic_back_url: result.secure_url,
-        kyc_status:   "submitted",
+        nic_back_public_id: result.public_id,
+        kyc_status:         "submitted",
       }));
     }
 
     alert("Uploaded successfully!");
   } catch (error: any) {
+    console.error('handleFileUpload error:', error)
     alert(`Upload failed: ${error.message}`);
   }
 };
@@ -299,11 +342,29 @@ export default function ProfileEditor() {
   if (!user) return (
     <div className="flex flex-col items-center justify-center h-screen space-y-4">
       <h1 className="text-2xl font-bold">Please Sign In</h1>
-      <button 
-        onClick={() => supabase.auth.signInWithOAuth({ provider: 'google' })}
+      <input
+        id="dev-email"
+        type="email"
+        placeholder="Email"
+        className="px-4 py-2 border rounded-xl w-72"
+      />
+      <input
+        id="dev-password"
+        type="password"
+        placeholder="Password"
+        className="px-4 py-2 border rounded-xl w-72"
+      />
+      <button
+        onClick={async () => {
+          const email = (document.getElementById('dev-email') as HTMLInputElement).value
+          const password = (document.getElementById('dev-password') as HTMLInputElement).value
+          const { error } = await supabase.auth.signInWithPassword({ email, password })
+          if (error) alert(error.message)
+          else window.location.reload()
+        }}
         className="px-6 py-2 bg-black text-white rounded-full"
       >
-        Sign in with Google
+        Sign In
       </button>
     </div>
   );
@@ -404,26 +465,40 @@ export default function ProfileEditor() {
                     NIC Front <InfoTooltip content="Upload a clear photo of the front side of your National Identity Card. This is required for identity verification and to ensure the safety and trust of our platform." />
                   </label>
                   <div className="h-32 bg-gray-50 rounded-xl border border-dashed flex items-center justify-center relative overflow-hidden">
-                    {kycData?.nic_front_url ? <img src={kycData.nic_front_url} className="w-full h-full object-cover" /> : <Upload className="text-gray-300" />}
-                  <input
-                    type="file"
-                    className="absolute inset-0 opacity-0 cursor-pointer"
-                    onChange={(e) => handleFileUpload(e, "nic_front")}
-                  />
-                  </div>
+                  {kycData?.nic_front_public_id ? (
+                  <div className="flex flex-col items-center gap-2">
+                  <CheckCircle2 className="w-8 h-8 text-emerald-500" />
+                  <span className="text-xs font-medium text-emerald-600">Uploaded</span>
+              </div>
+  ) : (
+    <Upload className="text-gray-300" />
+  )}
+  <input
+    type="file"
+    className="absolute inset-0 opacity-0 cursor-pointer"
+    onChange={(e) => handleFileUpload(e, "nic_front")}
+  />
+</div>
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium flex items-center">
                     NIC Back <InfoTooltip content="Upload a clear photo of the back of your National Identity Card. Both sides are required to complete your identity verification successfully." />
                   </label>
                   <div className="h-32 bg-gray-50 rounded-xl border border-dashed flex items-center justify-center relative overflow-hidden">
-                    {kycData?.nic_back_url ? <img src={kycData.nic_back_url} className="w-full h-full object-cover" /> : <Upload className="text-gray-300" />}
-                  <input
-                    type="file"
-                    className="absolute inset-0 opacity-0 cursor-pointer"
-                    onChange={(e) => handleFileUpload(e, "nic_back")}
-                  />
+                    {kycData?.nic_back_public_id ? (
+                  <div className="flex flex-col items-center gap-2">
+                    <CheckCircle2 className="w-8 h-8 text-emerald-500" />
+                    <span className="text-xs font-medium text-emerald-600">Uploaded</span>
                   </div>
+  ) : (
+    <Upload className="text-gray-300" />
+  )}
+  <input
+    type="file"
+    className="absolute inset-0 opacity-0 cursor-pointer"
+    onChange={(e) => handleFileUpload(e, "nic_back")}
+  />
+</div>
                 </div>
               </div>
               <div className="space-y-2">

@@ -12,8 +12,16 @@
 //   })
 // ═══════════════════════════════════════════════════════════════════════════
 
-import { supabase } from '@/lib/supabaseClient'
-import { AssetType } from '@/lib/uploadToCloudinary'
+import { supabase } from './supabase'
+type AssetType =
+  | 'talent_avatar'
+  | 'talent_cover'
+  | 'talent_portfolio'
+  | 'kyc_front'
+  | 'kyc_back'
+  | 'client_avatar'
+  | 'venue_avatar'
+  | 'venue_document'
 
 export interface DeleteOptions {
   publicId:  string
