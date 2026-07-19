@@ -1,0 +1,11 @@
+# CODEOWNERS
+# Currently informational only (solo dev). Once Erich / Ashey / Ranil or other
+# collaborators start pushing code, uncomment and assign real GitHub usernames
+# below, then enable "Require review from Code Owners" in branch protection.
+
+# * @praveen-github-username
+
+# Example once the team grows:
+# /supabase/          @praveen-github-username
+# /src/components/    @praveen-github-username
+# /pages/             @praveen-github-username
