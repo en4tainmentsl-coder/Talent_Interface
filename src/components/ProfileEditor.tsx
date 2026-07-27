@@ -77,6 +77,8 @@ export default function ProfileEditor() {
   const [showAgreement, setShowAgreement] = useState(false);
   const [hasReadToBottom, setHasReadToBottom] = useState(false);
   const [pendingValues, setPendingValues] = useState<ProfileFormValues | null>(null);
+  const [approvalStatus, setApprovalStatus] = useState<string | null>(null);
+  const [isEditing, setIsEditing] = useState<boolean>(false);
   const agreementRef = useRef<HTMLDivElement>(null);
 
   const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm<ProfileFormValues>({
@@ -90,61 +92,63 @@ export default function ProfileEditor() {
   });
 
   useEffect(() => {
-    async function getInitialData() {
-      const { data: { user } } = await supabase.auth.getUser();
-      setUser(user);
-      
-      // Fetch genres
-      const { data: genresData } = await supabase
-        .from('genres')
+  async function getInitialData() {
+    const { data: { user } } = await supabase.auth.getUser();
+    setUser(user);
+    
+    // Fetch genres
+    const { data: genresData } = await supabase
+      .from('genres')
+      .select('*')
+      .order('name');
+    if (genresData) setGenresList(genresData);
+
+    if (user) {
+      const profileRes = await supabase
+        .from('profiles_talent')
         .select('*')
-        .order('name');
-      if (genresData) setGenresList(genresData);
+        .eq('user_id', user.id)
+        .single();
 
-      if (user) {
-        const profileRes = await supabase
-          .from('profiles_talent')
-          .select('*')
-          .eq('user_id', user.id)
-          .single();
+      if (profileRes.data) {
+        const talentId = profileRes.data.id;
 
-        if (profileRes.data) {
-          const talentId = profileRes.data.id;
+        setApprovalStatus(profileRes.data.approval_status ?? null);
 
-          const [kycRes, mediaRes] = await Promise.all([
-            supabase.from('talent_identity').select('*').eq('talent_id', talentId).single(),
-            supabase.from('talent_media').select('pfp_1_url, pfp_2_url, pfp_3_url').eq('talent_id', talentId).single()
-          ]);
+        const [kycRes, mediaRes] = await Promise.all([
+          supabase.from('talent_identity').select('*').eq('talent_id', talentId).single(),
+          supabase.from('talent_media').select('pfp_1_url, pfp_2_url, pfp_3_url').eq('talent_id', talentId).single()
+        ]);
 
-          const featureUrls = [
-            mediaRes.data?.pfp_1_url || '',
-            mediaRes.data?.pfp_2_url || '',
-            mediaRes.data?.pfp_3_url || '',
-          ];
+        const featureUrls = [
+          mediaRes.data?.pfp_1_url || '',
+          mediaRes.data?.pfp_2_url || '',
+          mediaRes.data?.pfp_3_url || '',
+        ];
 
-          setProfile({
-            ...profileRes.data,
-            profile_picture_url: profileRes.data.profile_photo_url ?? '',
-            profile_cover_url:   profileRes.data.cover_photo_url ?? '',
-            profile_feature_urls: featureUrls,
-          });
-          reset({
-            ...profileRes.data,
-            national_id_number: kycRes.data?.nic_number || '',
-            secondary_locations: profileRes.data.secondary_locations || ['', '', '', ''],
-            genres: profileRes.data.genres || ['', '', ''],
-          });
+        setProfile({
+          ...profileRes.data,
+          profile_picture_url: profileRes.data.profile_photo_url ?? '',
+          profile_cover_url:   profileRes.data.cover_photo_url ?? '',
+          profile_feature_urls: featureUrls,
+        });
+        reset({
+          ...profileRes.data,
+          national_id_number: kycRes.data?.nic_number || '',
+          secondary_locations: profileRes.data.secondary_locations || ['', '', '', ''],
+          genres: profileRes.data.genres || ['', '', ''],
+        });
 
-          if (kycRes.data) {
-            setKycData(kycRes.data);
-          }
+        if (kycRes.data) {
+          setKycData(kycRes.data);
         }
       }
-      setLoading(false);
     }
-    getInitialData();
-  }, [reset]);
-
+    setLoading(false);
+  }
+  getInitialData();
+}, [reset]);
+  
   const onSubmit = async (values: ProfileFormValues) => {
     if (!user) return;
     setPendingValues(values);
@@ -160,12 +164,13 @@ export default function ProfileEditor() {
       const { national_id_number, ...profileValues } = pendingValues;
 
       const { error: profileError } = await supabase
-        .from('profiles')
+        .from('profiles_talent')
         .upsert({
-          id: user.id,
+          id: profile?.id,
+          user_id: user.id,
           ...profileValues,
           updated_at: new Date().toISOString(),
-        });
+        }, { onConflict: 'user_id' });
       if (profileError) throw profileError;
 
       // Update national ID in talent_identity
@@ -179,7 +184,7 @@ export default function ProfileEditor() {
       if (kycError) throw kycError;
 
       alert('Profile saved successfully!');
-      navigate('/');
+      setIsEditing(false);
     } catch (error: any) {
       alert(error.message);
     } finally {
@@ -339,37 +344,39 @@ const handleFileUpload = async (
 
   if (loading) return <div className="flex items-center justify-center h-screen"><Loader2 className="animate-spin" /></div>;
 
-  if (!user) return (
-    <div className="flex flex-col items-center justify-center h-screen space-y-4">
-      <h1 className="text-2xl font-bold">Please Sign In</h1>
-      <input
-        id="dev-email"
-        type="email"
-        placeholder="Email"
-        className="px-4 py-2 border rounded-xl w-72"
-      />
-      <input
-        id="dev-password"
-        type="password"
-        placeholder="Password"
-        className="px-4 py-2 border rounded-xl w-72"
-      />
+if (!user) return (
+  <div className="flex flex-col items-center justify-center h-screen">
+    <p className="text-gray-500">Please sign in to continue.</p>
+  </div>
+);
+if (approvalStatus === 'approved' && !isEditing) {
+  return (
+    <div className="max-w-2xl mx-auto p-10 bg-white shadow-xl rounded-3xl my-10 text-center space-y-4">
+      <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto" />
+      <h1 className="text-3xl font-bold">Your profile is live</h1>
+      <p className="text-gray-500">Your talent profile has been approved and is published on the public site.</p>
       <button
-        onClick={async () => {
-          const email = (document.getElementById('dev-email') as HTMLInputElement).value
-          const password = (document.getElementById('dev-password') as HTMLInputElement).value
-          const { error } = await supabase.auth.signInWithPassword({ email, password })
-          if (error) alert(error.message)
-          else window.location.reload()
-        }}
-        className="px-6 py-2 bg-black text-white rounded-full"
+        onClick={() => setIsEditing(true)}
+        className="inline-flex items-center gap-2 px-6 py-3 bg-emerald-600 text-white rounded-full hover:bg-emerald-700 transition-colors"
       >
-        Sign In
+        <Edit3 className="w-4 h-4" />
+        Edit Details
       </button>
     </div>
   );
+}
 
+if (approvalStatus === 'pending_approval') {
   return (
+    <div className="max-w-2xl mx-auto p-10 bg-white shadow-xl rounded-3xl my-10 text-center space-y-4">
+      <Loader2 className="w-12 h-12 text-gray-400 mx-auto" />
+      <h1 className="text-3xl font-bold">Under review</h1>
+      <p className="text-gray-500">Your profile has been submitted and is awaiting admin approval. We'll email you once it's reviewed.</p>
+    </div>
+  );
+}
+
+return (
     <div className="max-w-4xl mx-auto p-8 bg-white shadow-xl rounded-3xl my-10">
       <div className="flex items-center justify-between mb-8">
         <div>
