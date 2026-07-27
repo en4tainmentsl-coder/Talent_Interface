@@ -14,89 +14,11 @@ const isValidUrl = (url: any): url is string => {
   return typeof url === 'string' && url.trim().startsWith('http');
 };
 
-// Mock implementation for previewing without real Supabase
-const mockSupabase = {
-  auth: {
-    getSession: async () => ({ data: { session: { provider_token: 'mock-token', user: { id: 'mock-id', email: 'test@example.com', user_metadata: { full_name: 'Test Artist', avatar_url: 'https://picsum.photos/200' } } } }, error: null }),
-    onAuthStateChange: (cb: any) => {
-      cb('SIGNED_IN', { user: { id: 'mock-id', email: 'test@example.com', user_metadata: { full_name: 'Test Artist', avatar_url: 'https://picsum.photos/200' } } });
-      return { data: { subscription: { unsubscribe: () => {} } } };
-    },
-    signInWithOAuth: async () => ({ data: {}, error: null }),
-    signOut: async () => ({ error: null }),
-    getUser: async () => ({ data: { user: { id: 'mock-id', email: 'test@example.com', user_metadata: { full_name: 'Test Artist', avatar_url: 'https://picsum.photos/200' } } }, error: null }),
-  },
-  from: (table: string) => {
-    const queryBuilder: any = {
-      select: (columns: string) => {
-        if (table === 'profiles_users' && columns === 'role') {
-          return {
-            eq: (col: string, val: string) => ({
-              single: async () => ({ data: { role: 'client' }, error: null })
-            })
-          };
-        }
-        return queryBuilder;
-      },
-      eq: () => queryBuilder,
-      in: () => queryBuilder,
-      order: () => queryBuilder,
-      limit: () => queryBuilder,
-      is: () => queryBuilder,
-      single: async () => ({ data: null, error: null }),
-      upsert: async () => ({ data: null, error: null }),
-      insert: async () => ({ data: null, error: null }),
-      update: () => queryBuilder,
-      then: (onfulfilled: any) => Promise.resolve({ data: [], error: null }).then(onfulfilled),
-    };
-    return queryBuilder;
-  },
-  storage: {
-    from: () => ({
-      upload: async () => ({ data: { path: 'mock' }, error: null }),
-      getPublicUrl: () => ({ data: { publicUrl: 'https://picsum.photos/200' } }),
-    }),
-  },
-  channel: (name: string) => {
-    const channelObj: any = {
-      on: () => channelObj,
-      subscribe: () => channelObj,
-    };
-    return channelObj;
-  },
-  removeChannel: () => {},
-} as any;
-
-// Add some mock data for genres if using mock
-if (!(isValidUrl(rawUrl) && rawKey)) {
-  const originalFrom = mockSupabase.from;
-  mockSupabase.from = (table: string) => {
-    if (table === 'genres') {
-      return {
-        select: () => ({
-          order: async () => ({
-            data: [
-              { id: '1', name: 'Jazz' },
-              { id: '2', name: 'Pop' },
-              { id: '3', name: 'Rock' },
-              { id: '4', name: 'Classical' },
-              { id: '5', name: 'Hip Hop' },
-              { id: '6', name: 'Electronic' },
-              { id: '7', name: 'Blues' },
-              { id: '8', name: 'Country' },
-              { id: '9', name: 'Reggae' },
-              { id: '10', name: 'Funk' }
-            ],
-            error: null
-          })
-        })
-      };
-    }
-    return originalFrom(table);
-  };
+if (!isValidUrl(rawUrl) || !rawKey) {
+  throw new Error('Supabase environment variables are missing or invalid. Check VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.');
 }
 
-export const supabase = (isValidUrl(rawUrl) && rawKey) ? createClient(rawUrl, rawKey) : mockSupabase;
+export const supabase = createClient(rawUrl, rawKey);
 
 export type Profile = {
   id: string;
