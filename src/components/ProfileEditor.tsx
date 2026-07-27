@@ -345,35 +345,10 @@ const handleFileUpload = async (
   if (loading) return <div className="flex items-center justify-center h-screen"><Loader2 className="animate-spin" /></div>;
 
 if (!user) return (
-  <div className="flex flex-col items-center justify-center h-screen space-y-4">
-    <h1 className="text-2xl font-bold">Please Sign In</h1>
-    <input
-      id="dev-email"
-      type="email"
-      placeholder="Email"
-      className="px-4 py-2 border rounded-xl w-72"
-    />
-    <input
-      id="dev-password"
-      type="password"
-      placeholder="Password"
-      className="px-4 py-2 border rounded-xl w-72"
-    />
-    <button
-      onClick={async () => {
-        const email = (document.getElementById('dev-email') as HTMLInputElement).value
-        const password = (document.getElementById('dev-password') as HTMLInputElement).value
-        const { error } = await supabase.auth.signInWithPassword({ email, password })
-        if (error) alert(error.message)
-        else window.location.reload()
-      }}
-      className="px-6 py-2 bg-black text-white rounded-full"
-    >
-      Sign In
-    </button>
+  <div className="flex flex-col items-center justify-center h-screen">
+    <p className="text-gray-500">Please sign in to continue.</p>
   </div>
 );
-
 if (approvalStatus === 'approved' && !isEditing) {
   return (
     <div className="max-w-2xl mx-auto p-10 bg-white shadow-xl rounded-3xl my-10 text-center space-y-4">
