@@ -25,7 +25,6 @@ import NotificationsPanel from './components/NotificationsPanel';
 
 export default function App() {
   const [session, setSession] = useState<any>(null);
-  const [isBypassed, setIsBypassed] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
@@ -139,7 +138,7 @@ export default function App() {
 
   const unreadCount = notifications.filter(n => !n.read_at).length;
 
-  if (!session && !isBypassed) {
+  if (!session) {
     return (
       <div className="min-h-screen bg-[#f8f9fa] flex items-center justify-center p-4">
         <div className="max-w-md w-full bg-white rounded-[2.5rem] shadow-2xl p-10 space-y-8 text-center border border-gray-100">
@@ -159,48 +158,17 @@ export default function App() {
           </div>
           <div className="space-y-4">
             <button 
-              onClick={() => supabase.auth.signInWithOAuth({ 
-                provider: 'google',
-                options: {
-                  scopes: 'https://www.googleapis.com/auth/calendar.events',
-                  redirectTo: window.location.origin + '/profile'
-                }
-              })}
-              className="w-full py-4 bg-black text-white rounded-2xl font-bold text-lg hover:bg-gray-800 transition-all transform hover:scale-[1.02] active:scale-[0.98] shadow-xl"
-            >
-              Sign in with Google
-            </button>
-            
-            <input
-  id="dev-email"
-  type="email"
-  placeholder="Email"
-  className="w-full py-4 px-6 border-2 border-gray-100 rounded-2xl text-lg outline-none"
-/>
-<input
-  id="dev-password"
-  type="password"
-  placeholder="Password"
-  className="w-full py-4 px-6 border-2 border-gray-100 rounded-2xl text-lg outline-none"
-/>
-<button
-  onClick={async () => {
-    const email = (document.getElementById('dev-email') as HTMLInputElement).value
-    const password = (document.getElementById('dev-password') as HTMLInputElement).value
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) alert(error.message)
-  }}
-  className="w-full py-4 bg-emerald-600 text-white rounded-2xl font-bold text-lg hover:bg-emerald-700 transition-all"
+  onClick={() => supabase.auth.signInWithOAuth({ 
+    provider: 'google',
+    options: {
+      scopes: 'https://www.googleapis.com/auth/calendar.events',
+      redirectTo: window.location.origin + '/profile'
+    }
+  })}
+  className="w-full py-4 bg-black text-white rounded-2xl font-bold text-lg hover:bg-gray-800 transition-all transform hover:scale-[1.02] active:scale-[0.98] shadow-xl"
 >
-  Sign In with Email
+  Sign in with Google
 </button>
-<button
-  onClick={() => setIsBypassed(true)}
-  className="w-full py-4 bg-white text-gray-600 border-2 border-gray-100 rounded-2xl font-bold text-lg hover:bg-gray-50 transition-all"
->
-  Bypass Login (Dev Only)
-</button>
-
             <p className="text-xs text-gray-400">By signing in, you agree to our Terms of Service.</p>
           </div>
         </div>
@@ -262,10 +230,7 @@ export default function App() {
                 </div>
               </div>
               <button 
-                onClick={() => {
-                  if (isBypassed) setIsBypassed(false);
-                  else supabase.auth.signOut();
-                }}
+                onClick={() => supabase.auth.signOut()}
                 className="w-full flex items-center gap-3 px-4 py-3 text-red-600 hover:bg-red-50 rounded-2xl transition-colors font-bold text-sm"
               >
                 <LogOut className="w-5 h-5" />
