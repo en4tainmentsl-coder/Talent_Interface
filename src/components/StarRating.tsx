@@ -57,65 +57,74 @@ export default function StarRating({ talentId, bookingId, onSuccess }: StarRatin
   }
 
   const handleSubmit = async (selectedRating: number) => {
-    if (userRole !== 'client') {
-      setError('Only clients are permitted to submit ratings.');
-      return;
+  if (userRole !== 'client' && userRole !== 'venue') {
+    setError('Only clients or venues are permitted to submit ratings.');
+    return;
+  }
+
+  if (selectedRating < 1 || selectedRating > 5) {
+    setError('Rating must be between 1 and 5.');
+    return;
+  }
+
+  if (!bookingId) {
+    setError('A completed booking is required to submit a rating.');
+    return;
+  }
+
+  setSubmitting(true);
+  setError(null);
+
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
+
+    // Verify the booking is completed
+    const { data: booking, error: bookingError } = await supabase
+      .from('bookings')
+      .select('booking_status')
+      .eq('id', bookingId)
+      .single();
+    
+    if (bookingError) throw bookingError;
+    if (booking?.booking_status !== 'completed') {
+      throw new Error('Ratings can only be submitted for completed bookings.');
     }
 
-    if (selectedRating < 1 || selectedRating > 5) {
-      setError('Rating must be between 1 and 5.');
-      return;
-    }
+    // Insert into reviews_star table
+    const { error: reviewError } = await supabase
+      .from('reviews_star')
+      .insert({
+        rating: selectedRating,
+        overall_rating: selectedRating,
+        reviewer_user_id: user.id,
+        reviewee_talent_id: talentId,
+        booking_id: bookingId,
+        stage_presence_rating: selectedRating,
+        musical_ability_rating: selectedRating,
+        professionalism_rating: selectedRating,
+        sound_quality_rating: selectedRating,
+        audience_response_rating: selectedRating,
+        created_at: new Date().toISOString()
+      });
 
-    setSubmitting(true);
-    setError(null);
-
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
-
-      // If bookingId is provided, verify it's completed
-      if (bookingId) {
-        const { data: booking, error: bookingError } = await supabase
-          .from('bookings')
-          .select('booking_status')
-          .eq('id', bookingId)
-          .single();
-        
-        if (bookingError) throw bookingError;
-        if (booking?.booking_status !== 'completed') {
-          throw new Error('Ratings can only be submitted for completed bookings.');
-        }
+    if (reviewError) {
+      if (reviewError.code === '23505') {
+        throw new Error("You've already rated this booking.");
       }
-
-      // Insert into reviews table
-      const { error: reviewError } = await supabase
-        .from('reviews')
-        .insert({
-          rating: selectedRating,
-          reviewer_user_id: user.id,
-          talent_id: talentId,
-          booking_id: bookingId || null, // TODO: Ensure booking_id is passed from parent
-          stage_presence_rating: selectedRating,
-          musical_ability_rating: selectedRating,
-          professionalism_rating: selectedRating,
-          sound_quality_rating: selectedRating,
-          audience_response_rating: selectedRating,
-          created_at: new Date().toISOString()
-        });
-
-      if (reviewError) throw reviewError;
-
-      setSuccess(true);
-      setRating(selectedRating);
-      if (onSuccess) onSuccess();
-    } catch (err: any) {
-      setError(err.message || 'Failed to submit rating. Please try again.');
-    } finally {
-      setSubmitting(false);
+      throw reviewError;
     }
-  };
 
+    setSuccess(true);
+    setRating(selectedRating);
+    if (onSuccess) onSuccess();
+  } catch (err: any) {
+    setError(err.message || 'Failed to submit rating. Please try again.');
+  } finally {
+    setSubmitting(false);
+  }
+};
+  
   if (checkingRole) {
     return <div className="flex items-center gap-2 text-gray-400 text-sm"><Loader2 className="w-4 h-4 animate-spin" /> Checking permissions...</div>;
   }
