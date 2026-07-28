@@ -147,13 +147,13 @@ export default function StarRating({ talentId, bookingId, onSuccess }: StarRatin
             <button
               key={star}
               type="button"
-              disabled={submitting || userRole !== 'client'}
+              disabled={submitting || (userRole !== 'client' && userRole !== 'venue')}
               onClick={() => handleSubmit(star)}
               onMouseEnter={() => setHover(star)}
               onMouseLeave={() => setHover(0)}
               className={cn(
                 "p-1 transition-all transform hover:scale-110 active:scale-95 disabled:opacity-50 disabled:hover:scale-100",
-                userRole !== 'client' ? "cursor-not-allowed" : "cursor-pointer"
+                (userRole !== 'client' && userRole !== 'venue') ? "cursor-not-allowed" : "cursor-pointer"
               )}
             >
               <Star
@@ -176,8 +176,8 @@ export default function StarRating({ talentId, bookingId, onSuccess }: StarRatin
         </div>
       )}
 
-      {userRole !== 'client' && !error && (
-        <p className="text-xs text-gray-400 italic">Only clients can rate artists.</p>
+      {userRole !== 'client' && userRole !== 'venue' && !error && (
+        <p className="text-xs text-gray-400 italic">Only clients and venues can rate artists.</p>
       )}
     </div>
   );
