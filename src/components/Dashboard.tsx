@@ -4,7 +4,6 @@ import { TrendingUp, Calendar, MapPin, DollarSign, ArrowUpRight, Loader2, Star, 
 import { format } from 'date-fns';
 import { formatCurrency } from '../utils';
 import CalendarPreview from './CalendarPreview';
-import StarRating from './StarRating';
 
 export default function Dashboard() {
   const [loading, setLoading] = useState(true);
@@ -149,20 +148,6 @@ export default function Dashboard() {
                 ))
               )}
             </div>
-          </div>
-
-          {/* Rating Demo Section */}
-          <div className="bg-white border p-8 rounded-[2rem] shadow-sm">
-            <div className="flex items-center gap-3 mb-6">
-              <div className="p-3 bg-emerald-50 rounded-2xl">
-                <Star className="w-6 h-6 text-emerald-600" />
-              </div>
-              <div>
-                <h2 className="text-xl font-bold">Feedback</h2>
-                <p className="text-gray-500 text-xs">Organisers can leave feedback here.</p>
-              </div>
-            </div>
-            <StarRating talentId="mock-artist-id" />
           </div>
         </div>
       </div>
