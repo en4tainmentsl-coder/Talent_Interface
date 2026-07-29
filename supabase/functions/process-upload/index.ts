@@ -1,189 +1,231 @@
-// process-upload
-// Called by the browser AFTER a successful direct upload to Cloudinary.
-// Saves the returned metadata to the correct Supabase table using the
-// service role key (bypasses RLS so it can write on behalf of any user).
+// ═══════════════════════════════════════════════════════════════════════════
+// process-upload  —  En4tainment
+// Persists upload metadata after a direct-to-storage upload.
 //
-// POST body:
-//   asset_type    : AssetType
-//   user_id       : string   (auth user UUID)
-//   talent_id     : string?  (profiles_talent.id — required for talent assets)
-//   client_id     : string?  (profiles_clients.id — required for client assets)
-//   venue_id      : string?  (profiles_venues.id  — required for venue assets)
-//   public_id     : string   (Cloudinary public_id)
-//   secure_url    : string   (only for public assets; omit for KYC)
-//   resource_type : string   ('image' | 'video' | 'raw')
-//   bytes         : number
-//   width         : number?
-//   height        : number?
-//   sort_order    : number?  (for portfolio items, 0-based)
-//   side          : string?  ('front' | 'back' — for KYC only)
+//   • Cloudinary    — public assets (avatars, covers, portfolio)
+//   • Cloudflare R2 — sensitive assets (KYC, venue documents)
+//
+// The caller's identity always comes from the verified JWT, never the body.
+// ═══════════════════════════════════════════════════════════════════════════
 
-import { corsHeaders } from '../_shared/cors.ts'
-import { ASSET_CONFIG, AssetType } from '../_shared/assetConfig.ts'
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.0'
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+}
+
+const CLOUDINARY_TYPES = [
+  'talent_avatar', 'talent_cover', 'talent_portfolio',
+  'client_avatar', 'venue_avatar',
+]
+const R2_TYPES = ['kyc_front', 'kyc_back', 'venue_document']
+
+// talent_media.resource_type enum: image | video | raw | audio
+function toResourceType(mime?: string, hint?: string): string {
+  if (hint && ['image', 'video', 'raw', 'audio'].includes(hint)) return hint
+  if (mime?.startsWith('image/')) return 'image'
+  if (mime?.startsWith('video/')) return 'video'
+  if (mime?.startsWith('audio/')) return 'audio'
+  return 'raw'
+}
 
 Deno.serve(async (req: Request) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders })
-  }
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
+
+  const json = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
 
   try {
+    // ── Authenticate ───────────────────────────────────────────────────────
+    const authHeader = req.headers.get('Authorization')
+    if (!authHeader) return json({ error: 'Missing authorization header' }, 401)
+
+    const userClient = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_ANON_KEY')!,
+      { global: { headers: { Authorization: authHeader } } },
+    )
+
+    const { data: { user }, error: authError } = await userClient.auth.getUser()
+    if (authError || !user) return json({ error: 'Unauthorized' }, 401)
+
+    const admin = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+    )
+
     const body = await req.json()
     const {
       asset_type,
-      user_id,
-      talent_id,
-      client_id,
-      venue_id,
-      public_id,
-      secure_url,
-      resource_type,
+      public_id,          // Cloudinary public_id  OR  R2 object key
+      secure_url,         // Cloudinary only
+      storage_bucket,     // R2 only
+      content_type,       // mime, used to derive resource_type
+      resource_type,      // optional explicit override
+      media_type,         // optional, talent_portfolio only
       bytes,
-      width,
-      height,
-      sort_order = 0,
-      side,
+      format,
+      title,
+      sort_order,
+      file_name,          // venue_document only
+      related_entity_id,  // venue_document only
     } = body
 
-    // ── Validate required fields ─────────────────────────────────────────────
-    if (!asset_type || !user_id || !public_id || !resource_type) {
-      return new Response(
-        JSON.stringify({ error: 'asset_type, user_id, public_id and resource_type are required' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+    if (!asset_type) return json({ error: 'asset_type is required' }, 400)
+    if (!public_id)  return json({ error: 'public_id is required' }, 400)
+
+    const isR2 = R2_TYPES.includes(asset_type)
+    if (!isR2 && !CLOUDINARY_TYPES.includes(asset_type)) {
+      return json({ error: `Unknown asset_type: ${asset_type}` }, 400)
+    }
+    if (isR2 && !storage_bucket) {
+      return json({ error: 'storage_bucket is required for this asset type' }, 400)
     }
 
-    const config = ASSET_CONFIG[asset_type as AssetType]
-    if (!config) {
-      return new Response(
-        JSON.stringify({ error: `Unknown asset_type: ${asset_type}` }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+    // Resolve auth uid → profile row. Never trust a client-sent profile id.
+    async function resolveProfile(table: string) {
+      const { data } = await admin
+        .from(table).select('id').eq('user_id', user.id).maybeSingle()
+      return data?.id ?? null
     }
 
-    // ── Build Supabase admin client (bypasses RLS) ───────────────────────────
-    const supabaseUrl        = Deno.env.get('SUPABASE_URL')!
-    const serviceRoleKey     = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-    const supabase           = createClient(supabaseUrl, serviceRoleKey)
+    // ═══ SENSITIVE — KYC (R2) ════════════════════════════════════════════
+    if (asset_type === 'kyc_front' || asset_type === 'kyc_back') {
+      const talentId = await resolveProfile('profiles_talent')
+      if (!talentId) return json({ error: 'No talent profile for this user' }, 400)
 
-    // ── Route to correct table based on asset_type ───────────────────────────
-    let error: unknown = null
+      const col = asset_type === 'kyc_front'
+        ? 'nic_front_public_id'
+        : 'nic_back_public_id'
 
-    // ── Talent avatar (profiles_talent.avatar_url) ───────────────────────────
-    if (asset_type === 'talent_avatar') {
-      if (!talent_id) return missingField('talent_id', corsHeaders)
-      ;({ error } = await supabase
-        .from('profiles_talent')
-        .update({ avatar_url: secure_url, avatar_public_id: public_id, updated_at: new Date().toISOString() })
-        .eq('id', talent_id))
-    }
-
-    // ── Talent cover / profile banner (profiles_talent.cover_url) ────────────
-    else if (asset_type === 'talent_cover') {
-      if (!talent_id) return missingField('talent_id', corsHeaders)
-      ;({ error } = await supabase
-        .from('profiles_talent')
-        .update({ cover_url: secure_url, cover_public_id: public_id, updated_at: new Date().toISOString() })
-        .eq('id', talent_id))
-    }
-
-    // ── Talent portfolio (talent_media — upsert keyed on talent_id + sort_order) ──
-    else if (asset_type === 'talent_portfolio') {
-      if (!talent_id) return missingField('talent_id', corsHeaders)
-      ;({ error } = await supabase
-        .from('talent_media')
-        .upsert(
-          {
-            talent_id,
-            public_id,
-            secure_url,
-            resource_type,
-            bytes:      bytes  ?? 0,
-            width:      width  ?? null,
-            height:     height ?? null,
-            sort_order,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: 'talent_id,sort_order' }
-        ))
-    }
-
-    // ── KYC front / back (talent_identity — store public_id only, NOT secure_url) ──
-    else if (asset_type === 'kyc_front' || asset_type === 'kyc_back') {
-      if (!talent_id) return missingField('talent_id', corsHeaders)
-      const column = asset_type === 'kyc_front'
-        ? 'kyc_id_front_public_id'
-        : 'kyc_id_back_public_id'
-      ;({ error } = await supabase
+      const { error } = await admin
         .from('talent_identity')
-        .upsert(
-          {
-            talent_id,
-            [column]:   public_id,
-            kyc_status: 'submitted',
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: 'talent_id' }
-        ))
+        .upsert({
+          talent_id:          talentId,
+          [col]:              public_id,
+          nic_storage_bucket: storage_bucket,
+          kyc_status:         'submitted',
+          updated_at:         new Date().toISOString(),
+        }, { onConflict: 'talent_id' })
+
+      if (error) {
+        console.error('talent_identity upsert failed:', error)
+        return json({ error: 'Failed to save KYC metadata' }, 500)
+      }
+      return json({ success: true, asset_type, storage: 'r2' })
     }
 
-    // ── Client avatar (profiles_clients.avatar_url) ──────────────────────────
-    else if (asset_type === 'client_avatar') {
-      if (!client_id) return missingField('client_id', corsHeaders)
-      ;({ error } = await supabase
-        .from('profiles_clients')
-        .update({ avatar_url: secure_url, avatar_public_id: public_id, updated_at: new Date().toISOString() })
-        .eq('id', client_id))
-    }
+    // ═══ SENSITIVE — venue documents (R2) ════════════════════════════════
+    if (asset_type === 'venue_document') {
+      if (!file_name)         return json({ error: 'file_name is required' }, 400)
+      if (!related_entity_id) return json({ error: 'related_entity_id is required' }, 400)
 
-    // ── Venue avatar (profiles_venues.avatar_url) ─────────────────────────────
-    else if (asset_type === 'venue_avatar') {
-      if (!venue_id) return missingField('venue_id', corsHeaders)
-      ;({ error } = await supabase
+      const { data: venueRow } = await admin
         .from('profiles_venues')
-        .update({ avatar_url: secure_url, avatar_public_id: public_id, updated_at: new Date().toISOString() })
-        .eq('id', venue_id))
-    }
+        .select('id')
+        .eq('id', related_entity_id)
+        .eq('user_id', user.id)
+        .maybeSingle()
 
-    // ── Venue document (documents table) ─────────────────────────────────────
-    else if (asset_type === 'venue_document') {
-      if (!venue_id) return missingField('venue_id', corsHeaders)
-      ;({ error } = await supabase
+      if (!venueRow) return json({ error: 'Not authorised for this venue' }, 403)
+
+      const { error } = await admin
         .from('documents')
         .insert({
-          uploaded_by_user_id: user_id,
-          venue_id,
-          public_id,
-          resource_type,
-          bytes: bytes ?? 0,
-          created_at: new Date().toISOString(),
-        }))
+          related_entity_type: 'venue',
+          related_entity_id,
+          file_name,
+          storage_bucket,
+          file_path:           public_id,
+          uploaded_by_user_id: user.id,
+        })
+
+      if (error) {
+        console.error('documents insert failed:', error)
+        return json({ error: 'Failed to save document metadata' }, 500)
+      }
+      return json({ success: true, asset_type, storage: 'r2' })
     }
 
-    if (error) {
-      console.error('process-upload DB error:', error)
-      return new Response(
-        JSON.stringify({ error: 'Database write failed', detail: error }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+    // ═══ PUBLIC — Cloudinary ═════════════════════════════════════════════
+    if (!secure_url) return json({ error: 'secure_url is required' }, 400)
+
+    // Talent avatar / cover
+    if (asset_type === 'talent_avatar' || asset_type === 'talent_cover') {
+      const talentId = await resolveProfile('profiles_talent')
+      if (!talentId) return json({ error: 'No talent profile for this user' }, 400)
+
+      const patch = asset_type === 'talent_avatar'
+        ? { profile_photo_url: secure_url, profile_photo_public_id: public_id }
+        : { cover_photo_url:   secure_url, cover_photo_public_id:   public_id }
+
+      const { error } = await admin
+        .from('profiles_talent')
+        .update({ ...patch, updated_at: new Date().toISOString() })
+        .eq('id', talentId)
+
+      if (error) {
+        console.error('profiles_talent update failed:', error)
+        return json({ error: 'Failed to save metadata' }, 500)
+      }
+      return json({ success: true, asset_type, storage: 'cloudinary' })
     }
 
-    return new Response(
-      JSON.stringify({ success: true }),
-      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    )
+    // Talent portfolio
+    if (asset_type === 'talent_portfolio') {
+      const talentId = await resolveProfile('profiles_talent')
+      if (!talentId) return json({ error: 'No talent profile for this user' }, 400)
+
+      const { error } = await admin
+        .from('talent_media')
+        .insert({
+          talent_id:             talentId,
+          cloudinary_public_id:  public_id,
+          cloudinary_secure_url: secure_url,
+          resource_type:         toResourceType(content_type, resource_type),
+          media_type:            media_type ?? 'gallery',
+          format:                format ?? null,
+          folder:                'en410/portfolio',
+          bytes:                 bytes ?? null,
+          title:                 title ?? null,
+          sort_order:            sort_order ?? 0,
+        })
+
+      if (error) {
+        console.error('talent_media insert failed:', error)
+        return json({ error: 'Failed to save metadata' }, 500)
+      }
+      return json({ success: true, asset_type, storage: 'cloudinary' })
+    }
+
+    // Client / venue avatar
+    if (asset_type === 'client_avatar' || asset_type === 'venue_avatar') {
+      const table = asset_type === 'client_avatar' ? 'profiles_clients' : 'profiles_venues'
+
+      const profileId = await resolveProfile(table)
+      if (!profileId) return json({ error: `No ${table} profile for this user` }, 400)
+
+      const { error } = await admin
+        .from(table)
+        .update({ avatar_url: secure_url, avatar_public_id: public_id })
+        .eq('id', profileId)
+
+      if (error) {
+        console.error(`${table} update failed:`, error)
+        return json({ error: 'Failed to save metadata' }, 500)
+      }
+      return json({ success: true, asset_type, storage: 'cloudinary' })
+    }
+
+    return json({ error: 'Unhandled asset_type' }, 400)
+
   } catch (err) {
     console.error('process-upload error:', err)
-    return new Response(
-      JSON.stringify({ error: 'Internal server error', detail: String(err) }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    )
+    return json({ error: 'Internal server error' }, 500)
   }
 })
-
-function missingField(field: string, headers: Record<string, string>) {
-  return new Response(
-    JSON.stringify({ error: `${field} is required for this asset_type` }),
-    { status: 400, headers: { ...headers, 'Content-Type': 'application/json' } }
-  )
-}
