@@ -9,8 +9,42 @@ import { cn } from '../utils';
 import Markdown from 'react-markdown';
 import { ARTIST_AGREEMENT } from '../constants';
 import { motion, AnimatePresence } from 'motion/react';
-import { uploadToCloudinary } from "../utils/cloudinaryUpload";
-import { uploadToR2 } from "../utils/uploadToR2";
+import { uploadToCloudinary } from '../utils/cloudinaryUpload';
+import { uploadToR2 } from '../utils/uploadToR2';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Field mapping notes (verified against information_schema)
+//
+//   form field            → profiles_talent column
+//   ─────────────────────────────────────────────────────────────────────────
+//   trailer_link          → url_trailer_video
+//   live_link             → url_live_performace_video   (typo is in the DB)
+//   price_per_session     → pricing_per_session
+//   secondary_locations[] → optional_location_1 .. _4
+//   genre_ids[]           → primary_/secondary_/tertiary_genre_id  (uuid FKs)
+//   performance_type      → type_of_performer   (enum: solo|duo|3-piece|full band|dj)
+//   ensemble_type         → type_of_ensemble
+//   languages             → languages   (TEXT, not an array — joined on save)
+//
+// REMOVED — no column exists for these, so submitting them made every save fail:
+//   • bank_* fields. Bank data is tokenised via Payable.lk into
+//     talent_payout_accounts (payable_account_id + bank_account_last_4).
+//     There is deliberately no full-account-number column. Collecting one
+//     here and discarding it is worse than not collecting it.
+//   • preferred_days. `availability` is date-range based, not a weekly
+//     preference. Needs a column or table before this can be re-added.
+// ═══════════════════════════════════════════════════════════════════════════
+
+const FEATURE_SLOTS = [0, 1, 2];
+const FEATURE_MEDIA_TYPE = 'profile_photo';
+
+interface GenreRow { id: string; genre_name: string }
+
+interface FeaturePhoto {
+  sort_order: number;
+  public_id:  string;
+  secure_url: string;
+}
 
 function InfoTooltip({ content }: { content: string }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -42,28 +76,28 @@ function InfoTooltip({ content }: { content: string }) {
 }
 
 const profileSchema = z.object({
-  stage_name: z.string().min(2, "Stage name is required"),
-  full_name: z.string().min(2, "Full name is required"),
-  email: z.string().email("Invalid email"),
-  mobile: z.string().min(8, "Mobile number is required"),
-  fb_trailer_link: z.string().url("Invalid URL").or(z.string().length(0)),
-  fb_live_link: z.string().url("Invalid URL").or(z.string().length(0)),
-  price_per_session: z.number().min(0),
-  primary_location: z.string().min(2, "Primary location is required"),
-  secondary_locations: z.array(z.string()).length(4, "Exactly 4 secondary locations required"),
-  bank_name_on_account: z.string().min(2, "Required"),
-  bank_account_number: z.string().min(5, "Required"),
-  bank_name: z.string().min(2, "Required"),
-  bank_branch_code: z.string().min(2, "Required"),
-  preferred_days: z.array(z.string()).min(1, "Select at least one day"),
-  languages: z.array(z.string()).min(1, "Select at least one language"),
-  performance_type: z.enum(['solo', 'duo', '3 piece', 'full band']),
-  ensemble_type: z.string().min(2, "Required"),
-  // NIC is optional on load — the raw number is never returned from the
-  // server, so the field starts empty even when one is already on file.
-  national_id_number: z.string().min(5, "Required").or(z.string().length(0)),
-  bio: z.string().min(10, "Bio should be at least 10 characters"),
-  genres: z.array(z.string()).length(3, "Exactly 3 genres required"),
+  stage_name:          z.string().min(2, 'Stage name is required'),
+  full_name:           z.string().min(2, 'Full name is required'),
+  email:               z.string().email('Invalid email'),
+  mobile:              z.string().min(8, 'Mobile number is required'),
+  trailer_link:        z.string().url('Invalid URL').or(z.string().length(0)),
+  live_link:           z.string().url('Invalid URL').or(z.string().length(0)),
+  price_per_session:   z.number().min(0),
+  primary_location:    z.string().min(2, 'Primary location is required'),
+  secondary_locations: z.array(z.string()).length(4),
+  languages:           z.string().min(2, 'Enter at least one language'),
+  performance_type:    z.enum(['solo', 'duo', '3-piece', 'full band', 'dj']),
+  ensemble_type:       z.string().min(2, 'Required'),
+  // Genres are uuid foreign keys into `genres`. Primary is NOT NULL in the DB.
+  genre_ids: z.tuple([
+    z.string().uuid('Select a primary genre'),
+    z.string().uuid().or(z.string().length(0)),
+    z.string().uuid().or(z.string().length(0)),
+  ]),
+  // Optional on load: the raw NIC is never returned from the server, so the
+  // field starts empty even when one is already on file.
+  national_id_number: z.string().min(5, 'Required').or(z.string().length(0)),
+  bio: z.string().min(10, 'Bio should be at least 10 characters'),
 });
 
 type ProfileFormValues = z.infer<typeof profileSchema>;
@@ -81,9 +115,9 @@ export default function ProfileEditor() {
   const [user, setUser]                       = useState<any>(null);
   const [showAgreement, setShowAgreement]     = useState(false);
   const [hasReadToBottom, setHasReadToBottom] = useState(false);
-  const [pendingValues, setPendingValues] = useState<ProfileFormValues | null>(null);
-  const [approvalStatus, setApprovalStatus] = useState<string | null>(null);
-  const [isEditing, setIsEditing] = useState<boolean>(false);
+  const [pendingValues, setPendingValues]     = useState<ProfileFormValues | null>(null);
+  const [approvalStatus, setApprovalStatus]   = useState<string | null>(null);
+  const [isEditing, setIsEditing]             = useState(false);
   const [uploadingTarget, setUploadingTarget] = useState<string | null>(null);
   const agreementRef = useRef<HTMLDivElement>(null);
 
@@ -98,65 +132,83 @@ export default function ProfileEditor() {
     });
 
   useEffect(() => {
-  async function getInitialData() {
-    const { data: { user } } = await supabase.auth.getUser();
-    setUser(user);
+    async function getInitialData() {
+      const { data: { user } } = await supabase.auth.getUser();
+      setUser(user);
 
-    // Fetch genres
-    const { data: genresData } = await supabase
-      .from('genres')
-      .select('*')
-      .order('name');
-    if (genresData) setGenresList(genresData);
+      // genre_name, not name. Ordered by display_order, active only.
+      const { data: genresData } = await supabase
+        .from('genres')
+        .select('id, genre_name')
+        .eq('is_active', true)
+        .order('display_order');
+      if (genresData) setGenresList(genresData as GenreRow[]);
 
-    if (user) {
-      const profileRes = await supabase
-        .from('profiles_talent')
-        .select('*')
-        .eq('user_id', user.id)
-        .single();
+      if (user) {
+        const { data: p } = await supabase
+          .from('profiles_talent')
+          .select('*')
+          .eq('user_id', user.id)
+          .maybeSingle();
 
-      if (profileRes.data) {
-        const talentId = profileRes.data.id;
+        if (p) {
+          setTalentId(p.id);
+          setApprovalStatus(p.approval_status ?? null);
+          setAvatarUrl(p.profile_photo_url ?? '');
+          setCoverUrl(p.cover_photo_url ?? '');
 
-        setApprovalStatus(profileRes.data.approval_status ?? null);
+          const [kycRes, mediaRes] = await Promise.all([
+            supabase.from('talent_identity').select('*').eq('talent_id', p.id).maybeSingle(),
+            supabase
+              .from('talent_media')
+              .select('sort_order, cloudinary_public_id, cloudinary_secure_url')
+              .eq('talent_id', p.id)
+              .eq('media_type', FEATURE_MEDIA_TYPE)
+              .order('sort_order'),
+          ]);
 
-        const [kycRes, mediaRes] = await Promise.all([
-          supabase.from('talent_identity').select('*').eq('talent_id', talentId).maybeSingle(),
-          supabase.from('talent_media').select('pfp_1_url, pfp_2_url, pfp_3_url').eq('talent_id', talentId).maybeSingle()
-        ]);
+          setFeatures(
+            (mediaRes.data ?? []).map((m: any) => ({
+              sort_order: m.sort_order,
+              public_id:  m.cloudinary_public_id,
+              secure_url: m.cloudinary_secure_url,
+            })),
+          );
 
-        const featureUrls = [
-          mediaRes.data?.pfp_1_url || '',
-          mediaRes.data?.pfp_2_url || '',
-          mediaRes.data?.pfp_3_url || '',
-        ];
+          reset({
+            stage_name:        p.stage_name ?? '',
+            full_name:         p.full_name ?? '',
+            email:             p.email ?? '',
+            mobile:            p.mobile ?? '',
+            trailer_link:      p.url_trailer_video ?? '',
+            live_link:         p.url_live_performace_video ?? '',
+            price_per_session: Number(p.pricing_per_session ?? 0),
+            primary_location:  p.primary_location ?? '',
+            secondary_locations: [
+              p.optional_location_1 ?? '',
+              p.optional_location_2 ?? '',
+              p.optional_location_3 ?? '',
+              p.optional_location_4 ?? '',
+            ],
+            languages:        p.languages ?? '',
+            performance_type: p.type_of_performer ?? 'solo',
+            ensemble_type:    p.type_of_ensemble ?? '',
+            genre_ids: [
+              p.primary_genre_id ?? '',
+              p.secondary_genre_id ?? '',
+              p.tertiary_genre_id ?? '',
+            ],
+            national_id_number: '',
+            bio: p.bio ?? '',
+          });
 
-        setProfile({
-          ...profileRes.data,
-          profile_picture_url: profileRes.data.profile_photo_url ?? '',
-          profile_cover_url:   profileRes.data.cover_photo_url ?? '',
-          profile_feature_urls: featureUrls,
-        });
-        reset({
-          ...profileRes.data,
-          // The raw NIC is never stored — only an HMAC hash and the last four
-          // digits. The field starts empty; the masked value is shown below it.
-          national_id_number: '',
-          secondary_locations: profileRes.data.secondary_locations || ['', '', '', ''],
-          genres: profileRes.data.genres || ['', '', ''],
-        });
-
-        if (kycRes.data) {
-          setKycData(kycRes.data);
+          if (kycRes.data) setKycData(kycRes.data);
         }
       }
       setLoading(false);
     }
-    setLoading(false);
-  }
-  getInitialData();
-}, [reset]);
+    getInitialData();
+  }, [reset]);
 
   const onSubmit = async (values: ProfileFormValues) => {
     if (!user) return;
@@ -206,28 +258,25 @@ export default function ProfileEditor() {
         .select('id')
         .single();
       if (profileError) throw profileError;
+      if (saved?.id) setTalentId(saved.id);
 
-      // NIC is hashed server-side by the submit-nic Edge Function — the raw
-      // number is never written to the database or logged. Skipped when the
-      // field is left blank, which means "no change".
-      if (national_id_number) {
+      // NIC is hashed server-side by submit-nic — the raw number is never
+      // written to the database or logged. Blank means "no change".
+      if (v.national_id_number) {
         const { data: nicData, error: nicError } = await supabase.functions.invoke(
           'submit-nic',
-          { body: { nic_number: national_id_number } }
+          { body: { nic_number: v.national_id_number } },
         );
-
         // invoke() does not surface 4xx JSON bodies as `error`, so a duplicate
         // NIC (409) would otherwise look like success.
         if (nicError || nicData?.error) {
           throw new Error(nicData?.error ?? nicError?.message ?? 'Failed to save identity number');
         }
-
         setKycData((prev: any) => ({
           ...prev,
           nic_last_four: nicData?.nic_last_four,
           kyc_status:    nicData?.kyc_status ?? prev?.kyc_status,
         }));
-
         setValue('national_id_number', '');
       }
 
@@ -246,24 +295,26 @@ export default function ProfileEditor() {
     if (scrollHeight - scrollTop <= clientHeight + 50) setHasReadToBottom(true);
   };
 
-  // Public (Cloudinary) assets only. KYC never falls back to a direct DB write:
-  // client-side writes to talent_identity are exactly what the R2 path exists
-  // to prevent, and they would violate the completeness constraint.
-  const safeProcessUpload = async (assetType: string, publicId: string, secureUrl: string, sortOrder?: number) => {
-    try {
-      const { error: fnError } = await supabase.functions.invoke('process-upload', {
-        body: {
-          asset_type:    assetType,
-          public_id:     publicId,
-          secure_url:    secureUrl || undefined,
-          resource_type: 'image',
-          sort_order:    sortOrder,
-        }
-      });
-      if (!fnError) return;
-      console.warn(`Edge Function process-upload returned an error. Falling back to direct database query.`, fnError);
-    } catch (invokeErr) {
-      console.warn(`Edge Function process-upload did not respond. Falling back to direct database query.`, invokeErr);
+  // Persist public asset metadata. No direct-DB fallback: process-upload is
+  // the server-side checkpoint, and a client-side write that fires precisely
+  // when that checkpoint rejects an upload is a bypass, not a fallback.
+  const persistUpload = async (
+    assetType: string,
+    publicId: string,
+    secureUrl: string,
+    extra: Record<string, unknown> = {},
+  ) => {
+    const { data, error } = await supabase.functions.invoke('process-upload', {
+      body: {
+        asset_type:    assetType,
+        public_id:     publicId,
+        secure_url:    secureUrl,
+        resource_type: 'image',
+        ...extra,
+      },
+    });
+    if (error || data?.error) {
+      throw new Error(data?.error ?? error?.message ?? 'Failed to save upload');
     }
   };
 
@@ -279,131 +330,90 @@ export default function ProfileEditor() {
     setUploadingTarget(uploadTarget === 'feature' ? `feature-${featureIndex}` : uploadTarget);
 
     try {
-      if (assetType === 'talent_avatar' && profile?.id) {
-        const { error } = await supabase
-          .from('profiles_talent')
-          .update({ profile_photo_url: secureUrl, updated_at: new Date().toISOString() })
-          .eq('id', profile.id);
-        if (error) throw error;
-      } else if (assetType === 'talent_cover' && profile?.id) {
-        const { error } = await supabase
-          .from('profiles_talent')
-          .update({ cover_photo_url: secureUrl, updated_at: new Date().toISOString() })
-          .eq('id', profile.id);
-        if (error) throw error;
-      } else if (assetType === 'talent_portfolio' && profile?.id && sortOrder !== undefined) {
-        const colMap: Record<number, string> = { 0: 'pfp_1_url', 1: 'pfp_2_url', 2: 'pfp_3_url' };
-        const colName = colMap[sortOrder];
-        if (colName) {
-          const { error } = await supabase
-            .from('talent_media')
-            .upsert({ talent_id: profile.id, [colName]: secureUrl }, { onConflict: 'talent_id' });
-          if (error) throw error;
+      // ── Sensitive: NIC images go to private R2, never Cloudinary ─────────
+      if (uploadTarget === 'nic_front' || uploadTarget === 'nic_back') {
+        if (!talentId) {
+          throw new Error('Please save your profile before uploading identity documents.');
         }
-      }
-    } catch (dbErr) {
-      console.warn(`Direct DB fallback also failed. Using client-side state only.`, dbErr);
-    }
-  };
-
-const handleFileUpload = async (
-  event: React.ChangeEvent<HTMLInputElement>,
-  uploadTarget: "avatar" | "cover" | "feature" | "nic_front" | "nic_back",
-  featureIndex?: number
-) => {
-  const file = event.target.files?.[0];
-  if (!file || !user) return;
-
-  event.target.value = "";
-  setUploadingTarget(uploadTarget);
-
-  try {
-    // ── Sensitive: NIC images go to private R2, never Cloudinary ──────────
-    if (uploadTarget === "nic_front" || uploadTarget === "nic_back") {
-      if (!profile?.id) {
-        throw new Error("Please save your profile before uploading identity documents.");
-      }
-
-      const assetType = uploadTarget === "nic_front" ? "kyc_front" : "kyc_back";
-
-      const r2Result = await uploadToR2({
-        file,
-        assetType,
-        talentId: profile.id,
-      });
-
-      if (!r2Result.success) throw new Error(r2Result.error ?? "Upload failed");
-
-      const idColumn = uploadTarget === "nic_front"
-        ? "nic_front_public_id"
-        : "nic_back_public_id";
-
-      setKycData((prev: any) => ({
-        ...prev,
-        [idColumn]: r2Result.objectKey,
-        // Status comes from the server: it decides whether this upload
-        // completed the set (both images + NIC number).
-        kyc_status: r2Result.kycStatus ?? prev?.kyc_status ?? "pending",
-      }));
-
-      alert("Identity document uploaded securely.");
-      return;
-    }
-
-    // ── Public: everything else stays on Cloudinary ───────────────────────
-    let result: { secure_url: string; public_id: string };
-
-    if (uploadTarget === "avatar") {
-      result = await uploadToCloudinary(file, "en410_avatars");
-      await safeProcessUpload('talent_avatar', result.public_id, result.secure_url);
-
-      setProfile((prev) =>
-        prev ? { ...prev, profile_picture_url: result.secure_url } : null
-      );
-
-    } else if (uploadTarget === "cover") {
-      result = await uploadToCloudinary(file, "en410_artist_profile");
-      await safeProcessUpload('talent_cover', result.public_id, result.secure_url);
-
-      setProfile((prev) =>
-        prev ? { ...prev, profile_cover_url: result.secure_url } : null
-      );
-
-    } else if (uploadTarget === "feature") {
-      if (featureIndex === undefined) throw new Error("featureIndex required");
-      const tag = `PFP_${featureIndex + 1}`;
-      result = await uploadToCloudinary(file, "en410_artist_portfolio", tag);
-
-      const columnMap: Record<number, string> = {
-        0: "pfp_1_url",
-        1: "pfp_2_url",
-        2: "pfp_3_url",
-      };
-      const column = columnMap[featureIndex];
-      if (!column) throw new Error("Invalid feature index");
 
         const assetType = uploadTarget === 'nic_front' ? 'kyc_front' : 'kyc_back';
         const r2 = await uploadToR2({ file, assetType });
         if (!r2.success) throw new Error(r2.error ?? 'Upload failed');
 
-      setProfile((prev) => {
-        if (!prev) return null;
-        const updated = [...(prev.profile_feature_urls ?? ["", "", ""])];
-        updated[featureIndex] = result.secure_url;
-        return { ...prev, profile_feature_urls: updated };
-      });
+        const idColumn = uploadTarget === 'nic_front'
+          ? 'nic_front_public_id'
+          : 'nic_back_public_id';
+
+        setKycData((prev: any) => ({
+          ...prev,
+          [idColumn]: r2.objectKey,
+          // Status comes from the server: it decides whether this upload
+          // completed the set (both images + NIC number).
+          kyc_status: r2.kycStatus ?? prev?.kyc_status ?? 'pending',
+        }));
+
+        alert('Identity document uploaded securely.');
+        return;
+      }
+
+      if (!talentId) throw new Error('Please save your profile before uploading images.');
+
+      // ── Public: Cloudinary ───────────────────────────────────────────────
+      if (uploadTarget === 'avatar') {
+        const r = await uploadToCloudinary(file, 'en410_avatars');
+        await persistUpload('talent_avatar', r.public_id, r.secure_url);
+        setAvatarUrl(r.secure_url);
+
+      } else if (uploadTarget === 'cover') {
+        const r = await uploadToCloudinary(file, 'en410_artist_profile');
+        await persistUpload('talent_cover', r.public_id, r.secure_url);
+        setCoverUrl(r.secure_url);
+
+      } else if (uploadTarget === 'feature') {
+        if (featureIndex === undefined) throw new Error('featureIndex required');
+
+        // uq_talent_media_slot is UNIQUE (talent_id, sort_order), so an
+        // occupied slot must be cleared before the new row can be inserted.
+        // Deleting via cloudinary-delete also removes the old file, rather
+        // than leaving an unreferenced asset behind.
+        const existing = features.find((f) => f.sort_order === featureIndex);
+        if (existing) {
+          const { data: delData, error: delError } = await supabase.functions.invoke(
+            'cloudinary-delete',
+            { body: { asset_type: 'talent_portfolio', public_id: existing.public_id } },
+          );
+          if (delError || delData?.error) {
+            throw new Error(delData?.error ?? delError?.message ?? 'Could not replace the existing photo');
+          }
+          setFeatures((prev) => prev.filter((f) => f.sort_order !== featureIndex));
+        }
+
+        const r = await uploadToCloudinary(file, 'en410_artist_portfolio');
+        await persistUpload('talent_portfolio', r.public_id, r.secure_url, {
+          media_type: FEATURE_MEDIA_TYPE,
+          sort_order: featureIndex,
+        });
+
+        setFeatures((prev) => [
+          ...prev.filter((f) => f.sort_order !== featureIndex),
+          { sort_order: featureIndex, public_id: r.public_id, secure_url: r.secure_url },
+        ]);
+      }
+
+      alert('Uploaded successfully!');
+    } catch (error: any) {
+      console.error('handleFileUpload error:', error);
+      alert(`Upload failed: ${error.message}`);
+    } finally {
+      setUploadingTarget(null);
     }
   };
 
   const featureUrl = (idx: number) =>
     features.find((f) => f.sort_order === idx)?.secure_url ?? '';
 
-    alert("Uploaded successfully!");
-  } catch (error: any) {
-    console.error('handleFileUpload error:', error);
-    alert(`Upload failed: ${error.message}`);
-  } finally {
-    setUploadingTarget(null);
+  if (loading) {
+    return <div className="flex items-center justify-center h-screen"><Loader2 className="animate-spin" /></div>;
   }
 
   if (!user) {
@@ -476,12 +486,8 @@ const handleFileUpload = async (
                   ? <img src={avatarUrl} className="w-full h-full object-cover" alt="Profile" />
                   : <Camera className="text-gray-400" />}
                 <label className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center cursor-pointer transition-opacity">
-                  <input
-                   type="file"
-                    className="hidden"
-                    onChange={(e) => handleFileUpload(e, "avatar")}
-                    accept="image/*"
-                  />
+                  <input type="file" className="hidden" accept="image/jpeg,image/png,image/webp"
+                         onChange={(e) => handleFileUpload(e, 'avatar')} />
                   {uploadingTarget === 'avatar'
                     ? <Loader2 className="text-white w-6 h-6 animate-spin" />
                     : <Upload className="text-white w-6 h-6" />}
@@ -499,12 +505,8 @@ const handleFileUpload = async (
                   ? <img src={coverUrl} className="w-full h-full object-cover" alt="Cover" />
                   : <ImageIcon className="text-gray-400" />}
                 <label className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center cursor-pointer transition-opacity">
-                  <input
-                  type="file"
-                  className="hidden"
-                  onChange={(e) => handleFileUpload(e, "cover")}
-                  accept="image/*"
-                />
+                  <input type="file" className="hidden" accept="image/jpeg,image/png,image/webp"
+                         onChange={(e) => handleFileUpload(e, 'cover')} />
                   {uploadingTarget === 'cover'
                     ? <Loader2 className="text-white w-6 h-6 animate-spin" />
                     : <Upload className="text-white w-6 h-6" />}
@@ -521,11 +523,11 @@ const handleFileUpload = async (
                 <h3 className="text-sm font-bold">Identity Verification</h3>
                 {kycData?.kyc_status && (
                   <span className={cn(
-                    "px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest",
-                    kycData.kyc_status === 'verified'  ? "bg-emerald-100 text-emerald-700" :
-                    kycData.kyc_status === 'submitted' ? "bg-blue-100 text-blue-700" :
-                    kycData.kyc_status === 'pending'   ? "bg-yellow-100 text-yellow-700" :
-                    "bg-red-100 text-red-700"
+                    'px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest',
+                    kycData.kyc_status === 'verified'  ? 'bg-emerald-100 text-emerald-700' :
+                    kycData.kyc_status === 'submitted' ? 'bg-blue-100 text-blue-700' :
+                    kycData.kyc_status === 'pending'   ? 'bg-yellow-100 text-yellow-700' :
+                    'bg-red-100 text-red-700',
                   )}>
                     {kycData.kyc_status}
                   </span>
@@ -533,52 +535,36 @@ const handleFileUpload = async (
               </div>
 
               <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium flex items-center">
-                    NIC Front <InfoTooltip content="Upload a clear photo of the front side of your National Identity Card. This is stored in encrypted private storage, is never publicly accessible, and is only viewable by verification staff." />
-                  </label>
-                  <div className="h-32 bg-gray-50 rounded-xl border border-dashed flex items-center justify-center relative overflow-hidden">
-                    {uploadingTarget === 'nic_front' ? (
-                      <Loader2 className="w-8 h-8 text-gray-400 animate-spin" />
-                    ) : kycData?.nic_front_public_id ? (
-                      <div className="flex flex-col items-center gap-2">
-                        <CheckCircle2 className="w-8 h-8 text-emerald-500" />
-                        <span className="text-xs font-medium text-emerald-600">Uploaded</span>
+                {(['nic_front', 'nic_back'] as const).map((side) => {
+                  const label  = side === 'nic_front' ? 'NIC Front' : 'NIC Back';
+                  const column = side === 'nic_front' ? 'nic_front_public_id' : 'nic_back_public_id';
+                  return (
+                    <div key={side} className="space-y-2">
+                      <label className="text-sm font-medium flex items-center">
+                        {label}
+                        <InfoTooltip content="Stored in private encrypted storage, never publicly accessible, and only viewable by verification staff. Maximum size 2MB." />
+                      </label>
+                      <div className="h-32 bg-gray-50 rounded-xl border border-dashed flex items-center justify-center relative overflow-hidden">
+                        {uploadingTarget === side ? (
+                          <Loader2 className="w-8 h-8 text-gray-400 animate-spin" />
+                        ) : kycData?.[column] ? (
+                          <div className="flex flex-col items-center gap-2">
+                            <CheckCircle2 className="w-8 h-8 text-emerald-500" />
+                            <span className="text-xs font-medium text-emerald-600">Uploaded</span>
+                          </div>
+                        ) : (
+                          <Upload className="text-gray-300" />
+                        )}
+                        <input
+                          type="file"
+                          className="absolute inset-0 opacity-0 cursor-pointer"
+                          accept="image/jpeg,image/png,image/webp,application/pdf"
+                          onChange={(e) => handleFileUpload(e, side)}
+                        />
                       </div>
-                    ) : (
-                      <Upload className="text-gray-300" />
-                    )}
-                    <input
-                      type="file"
-                      className="absolute inset-0 opacity-0 cursor-pointer"
-                      accept="image/jpeg,image/png,image/webp,application/pdf"
-                      onChange={(e) => handleFileUpload(e, "nic_front")}
-                    />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium flex items-center">
-                    NIC Back <InfoTooltip content="Upload a clear photo of the back of your National Identity Card. Both sides are required to complete your identity verification successfully." />
-                  </label>
-                  <div className="h-32 bg-gray-50 rounded-xl border border-dashed flex items-center justify-center relative overflow-hidden">
-                    {uploadingTarget === 'nic_back' ? (
-                      <Loader2 className="w-8 h-8 text-gray-400 animate-spin" />
-                    ) : kycData?.nic_back_public_id ? (
-                      <div className="flex flex-col items-center gap-2">
-                        <CheckCircle2 className="w-8 h-8 text-emerald-500" />
-                        <span className="text-xs font-medium text-emerald-600">Uploaded</span>
-                      </div>
-                    ) : (
-                      <Upload className="text-gray-300" />
-                    )}
-                    <input
-                      type="file"
-                      className="absolute inset-0 opacity-0 cursor-pointer"
-                      accept="image/jpeg,image/png,image/webp,application/pdf"
-                      onChange={(e) => handleFileUpload(e, "nic_back")}
-                    />
-                  </div>
-                </div>
+                    </div>
+                  );
+                })}
               </div>
 
               <div className="space-y-2">
@@ -593,7 +579,9 @@ const handleFileUpload = async (
                     On file: •••••••••{kycData.nic_last_four} — leave blank to keep it unchanged.
                   </p>
                 )}
-                {errors.national_id_number && <p className="text-red-500 text-xs">{errors.national_id_number.message}</p>}
+                {errors.national_id_number && (
+                  <p className="text-red-500 text-xs">{errors.national_id_number.message}</p>
+                )}
               </div>
             </div>
           </div>
@@ -611,13 +599,11 @@ const handleFileUpload = async (
                     ? <img src={featureUrl(idx)} className="w-full h-full object-cover" alt={`Feature ${idx + 1}`} />
                     : <ImageIcon className="text-gray-300 w-8 h-8" />}
                   <label className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center cursor-pointer transition-opacity">
-                    <input
-                      type="file"
-                      className="hidden"
-                      onChange={(e) => handleFileUpload(e, "feature", idx)}
-                      accept="image/*"
-                    />
-                    <Upload className="text-white w-6 h-6" />
+                    <input type="file" className="hidden" accept="image/jpeg,image/png,image/webp"
+                           onChange={(e) => handleFileUpload(e, 'feature', idx)} />
+                    {uploadingTarget === `feature-${idx}`
+                      ? <Loader2 className="text-white w-6 h-6 animate-spin" />
+                      : <Upload className="text-white w-6 h-6" />}
                   </label>
                 </div>
               ))}
