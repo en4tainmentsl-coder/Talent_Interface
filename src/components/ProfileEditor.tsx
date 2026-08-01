@@ -319,7 +319,7 @@ export default function ProfileEditor() {
       throw new Error(data?.error ?? error?.message ?? 'Failed to save upload');
     }
   };
-
+  
   const handleFileUpload = async (
     event: React.ChangeEvent<HTMLInputElement>,
     uploadTarget: 'avatar' | 'cover' | 'feature' | 'nic_front' | 'nic_back',
