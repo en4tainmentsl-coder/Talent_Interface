@@ -302,6 +302,7 @@ export default function ProfileEditor() {
     assetType: string,
     publicId: string,
     secureUrl: string,
+    bytes: number,
     extra: Record<string, unknown> = {},
   ) => {
     const { data, error } = await supabase.functions.invoke('process-upload', {
@@ -310,6 +311,7 @@ export default function ProfileEditor() {
         public_id:     publicId,
         secure_url:    secureUrl,
         resource_type: 'image',
+        bytes,
         ...extra,
       },
     });
@@ -361,21 +363,17 @@ export default function ProfileEditor() {
       // ── Public: Cloudinary ───────────────────────────────────────────────
       if (uploadTarget === 'avatar') {
         const r = await uploadToCloudinary(file, 'en410_avatars');
-        await persistUpload('talent_avatar', r.public_id, r.secure_url);
+        await persistUpload('talent_avatar', r.public_id, r.secure_url, r.bytes);
         setAvatarUrl(r.secure_url);
 
       } else if (uploadTarget === 'cover') {
         const r = await uploadToCloudinary(file, 'en410_artist_profile');
-        await persistUpload('talent_cover', r.public_id, r.secure_url);
+        await persistUpload('talent_cover', r.public_id, r.secure_url, r.bytes);
         setCoverUrl(r.secure_url);
 
       } else if (uploadTarget === 'feature') {
         if (featureIndex === undefined) throw new Error('featureIndex required');
 
-        // uq_talent_media_slot is UNIQUE (talent_id, sort_order), so an
-        // occupied slot must be cleared before the new row can be inserted.
-        // Deleting via cloudinary-delete also removes the old file, rather
-        // than leaving an unreferenced asset behind.
         const existing = features.find((f) => f.sort_order === featureIndex);
         if (existing) {
           const { data: delData, error: delError } = await supabase.functions.invoke(
@@ -389,7 +387,7 @@ export default function ProfileEditor() {
         }
 
         const r = await uploadToCloudinary(file, 'en410_artist_portfolio');
-        await persistUpload('talent_portfolio', r.public_id, r.secure_url, {
+        await persistUpload('talent_portfolio', r.public_id, r.secure_url, r.bytes, {
           media_type: FEATURE_MEDIA_TYPE,
           sort_order: featureIndex,
         });
@@ -399,7 +397,7 @@ export default function ProfileEditor() {
           { sort_order: featureIndex, public_id: r.public_id, secure_url: r.secure_url },
         ]);
       }
-
+      
       alert('Uploaded successfully!');
     } catch (error: any) {
       console.error('handleFileUpload error:', error);

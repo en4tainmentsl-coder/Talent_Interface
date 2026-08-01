@@ -14,6 +14,7 @@ import { supabase } from "../supabase";
 export type CloudinaryUploadResult = {
   secure_url: string;
   public_id:  string;
+  bytes:      number;
 };
 
 const PRESET_TO_ASSET_TYPE: Record<string, string> = {
@@ -23,12 +24,13 @@ const PRESET_TO_ASSET_TYPE: Record<string, string> = {
 }
 
 // Client-side guard only — the real enforcement is server-side in
-// process-upload, which checks the size Cloudinary reports after upload
-// and deletes+rejects if it's over. This check exists purely so a user
-// gets instant feedback instead of waiting through a multi-MB upload only
-// to have it rejected afterwards. Keep this in sync with process-upload's
-// MAX_BYTES and upload-document's MAX_BYTES — all three are independent
-// constants in separate files/languages, no shared source of truth.
+// process-upload, which checks the size Cloudinary reports (via `bytes`,
+// returned below and forwarded by the caller) and deletes+rejects if it's
+// over. This check exists purely so a user gets instant feedback instead of
+// waiting through a multi-MB upload only to have it rejected afterwards.
+// Keep this in sync with process-upload's MAX_BYTES and upload-document's
+// MAX_BYTES — all three are independent constants in separate
+// files/languages, no shared source of truth.
 const MAX_BYTES = 5 * 1024 * 1024 // 5 MiB
 
 export async function uploadToCloudinary(
@@ -87,5 +89,9 @@ export async function uploadToCloudinary(
   if (!result.secure_url || !result.public_id) {
     throw new Error('Cloudinary returned an incomplete response')
   }
-  return { secure_url: result.secure_url, public_id: result.public_id }
+  return {
+    secure_url: result.secure_url,
+    public_id:  result.public_id,
+    bytes:      result.bytes ?? 0,
+  };
 }
