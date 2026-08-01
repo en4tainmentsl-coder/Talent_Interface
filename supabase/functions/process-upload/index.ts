@@ -103,21 +103,57 @@ Deno.serve(async (req: Request) => {
         ? 'nic_front_public_id'
         : 'nic_back_public_id'
 
-      const { error } = await admin
+      // Store the image reference only. Status stays 'pending' here —
+      // advancing it now would violate the completeness constraint, since
+      // the other image and the NIC hash may not be present yet.
+      const { error: upsertError } = await admin
         .from('talent_identity')
         .upsert({
           talent_id:          talentId,
           [col]:              public_id,
           nic_storage_bucket: storage_bucket,
-          kyc_status:         'submitted',
           updated_at:         new Date().toISOString(),
         }, { onConflict: 'talent_id' })
 
-      if (error) {
-        console.error('talent_identity upsert failed:', error)
+      if (upsertError) {
+        console.error('talent_identity upsert failed:', upsertError.code)
         return json({ error: 'Failed to save KYC metadata' }, 500)
       }
-      return json({ success: true, asset_type, storage: 'r2' })
+
+      // Advance to 'submitted' only once all four pieces are in place.
+      const { data: row } = await admin
+        .from('talent_identity')
+        .select('nic_hash, nic_last_four, nic_front_public_id, nic_back_public_id, kyc_status')
+        .eq('talent_id', talentId)
+        .single()
+
+      const complete = !!(
+        row?.nic_hash &&
+        row?.nic_last_four &&
+        row?.nic_front_public_id &&
+        row?.nic_back_public_id
+      )
+
+      // The 'pending' guard stops a verified talent being knocked back to
+      // 'submitted' by re-uploading an image.
+      if (complete && row?.kyc_status === 'pending') {
+        const { error: statusError } = await admin
+          .from('talent_identity')
+          .update({ kyc_status: 'submitted', updated_at: new Date().toISOString() })
+          .eq('talent_id', talentId)
+
+        if (statusError) {
+          // Non-fatal: the upload saved. Status can be re-evaluated later.
+          console.error('kyc_status advance failed:', statusError.code)
+        }
+      }
+
+      return json({
+        success:    true,
+        asset_type,
+        storage:    'r2',
+        kyc_status: complete ? 'submitted' : 'pending',
+      })
     }
 
     // ═══ SENSITIVE — venue documents (R2) ════════════════════════════════
@@ -146,7 +182,7 @@ Deno.serve(async (req: Request) => {
         })
 
       if (error) {
-        console.error('documents insert failed:', error)
+        console.error('documents insert failed:', error.code)
         return json({ error: 'Failed to save document metadata' }, 500)
       }
       return json({ success: true, asset_type, storage: 'r2' })
@@ -170,7 +206,7 @@ Deno.serve(async (req: Request) => {
         .eq('id', talentId)
 
       if (error) {
-        console.error('profiles_talent update failed:', error)
+        console.error('profiles_talent update failed:', error.code)
         return json({ error: 'Failed to save metadata' }, 500)
       }
       return json({ success: true, asset_type, storage: 'cloudinary' })
@@ -197,7 +233,7 @@ Deno.serve(async (req: Request) => {
         })
 
       if (error) {
-        console.error('talent_media insert failed:', error)
+        console.error('talent_media insert failed:', error.code)
         return json({ error: 'Failed to save metadata' }, 500)
       }
       return json({ success: true, asset_type, storage: 'cloudinary' })
@@ -216,7 +252,7 @@ Deno.serve(async (req: Request) => {
         .eq('id', profileId)
 
       if (error) {
-        console.error(`${table} update failed:`, error)
+        console.error(`${table} update failed:`, error.code)
         return json({ error: 'Failed to save metadata' }, 500)
       }
       return json({ success: true, asset_type, storage: 'cloudinary' })
