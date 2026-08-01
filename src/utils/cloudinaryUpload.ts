@@ -9,7 +9,6 @@
 // There is no mock fallback: a fake success writes a random public_id to the
 // database and shows the artist someone else's stock photo.
 // ═══════════════════════════════════════════════════════════════════════════
-
 import { supabase } from "../supabase";
 
 export type CloudinaryUploadResult = {
@@ -23,11 +22,23 @@ const PRESET_TO_ASSET_TYPE: Record<string, string> = {
   'en410_artist_portfolio': 'talent_portfolio',
 }
 
+// Client-side guard only — the real enforcement is server-side in
+// process-upload, which checks the size Cloudinary reports after upload
+// and deletes+rejects if it's over. This check exists purely so a user
+// gets instant feedback instead of waiting through a multi-MB upload only
+// to have it rejected afterwards. Keep this in sync with process-upload's
+// MAX_BYTES and upload-document's MAX_BYTES — all three are independent
+// constants in separate files/languages, no shared source of truth.
+const MAX_BYTES = 5 * 1024 * 1024 // 5 MiB
+
 export async function uploadToCloudinary(
   file:         File,
   uploadPreset: string,
   _tag?:        string   // accepted for call-site compatibility; unused
 ): Promise<CloudinaryUploadResult> {
+  if (file.size > MAX_BYTES) {
+    throw new Error(`File exceeds the ${Math.round(MAX_BYTES / 1048576)}MB limit`)
+  }
 
   const assetType = PRESET_TO_ASSET_TYPE[uploadPreset]
   if (!assetType) {
@@ -36,29 +47,24 @@ export async function uploadToCloudinary(
       `Identity documents must be uploaded via uploadToR2.`
     )
   }
-
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) throw new Error('You must be logged in to upload files.')
-
   // ── 1. Signature ────────────────────────────────────────────────────────
   // Identity is resolved server-side from the JWT; no IDs are sent.
   const { data: signData, error: signError } = await supabase.functions.invoke(
     'cloudinary-sign',
     { body: { asset_type: assetType } }
   )
-
   if (signError || signData?.error || !signData?.signature) {
     console.error('cloudinary-sign failed:', signError, signData)
     throw new Error(
       signData?.error ?? signError?.message ?? 'Could not authorise upload. Please try again.'
     )
   }
-
   const {
     signature, timestamp, cloud_name, api_key,
     upload_preset, folder, resource_type,
   } = signData
-
   // ── 2. Upload ───────────────────────────────────────────────────────────
   const formData = new FormData()
   formData.append('file',          file)
@@ -67,24 +73,19 @@ export async function uploadToCloudinary(
   formData.append('signature',     signature)
   formData.append('upload_preset', upload_preset)
   formData.append('folder',        folder)
-
   // resource_type comes from the signer — 'auto' for portfolio so video and
   // audio are accepted, 'image' for avatars and covers.
   const response = await fetch(
     `https://api.cloudinary.com/v1_1/${cloud_name}/${resource_type ?? 'image'}/upload`,
     { method: 'POST', body: formData }
   )
-
   const result = await response.json()
-
   if (result.error) {
     console.error('Cloudinary rejected upload:', result.error)
     throw new Error(result.error.message ?? 'Cloudinary upload failed')
   }
-
   if (!result.secure_url || !result.public_id) {
     throw new Error('Cloudinary returned an incomplete response')
   }
-
   return { secure_url: result.secure_url, public_id: result.public_id }
 }
