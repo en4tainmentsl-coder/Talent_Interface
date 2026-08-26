@@ -1,15 +1,14 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Bell, Check, Clock } from 'lucide-react';
+import { X, Bell, Clock } from 'lucide-react';
 import { format } from 'date-fns';
-import { supabase } from '../supabase';
 import { cn } from '../utils';
 
 interface Notification {
   id: string;
-  message: string;
-  created_at: string;
-  read_at: string | null;
+  message_preview: string | null;
+  sent_at: string | null;
+  is_read: boolean;
   channel: 'in_app' | 'email' | 'push' | 'sms';
 }
 
@@ -81,11 +80,11 @@ export default function NotificationsPanel({
                 notifications.map((notification) => (
                   <div
                     key={notification.id}
-                    onClick={() => !notification.read_at && onMarkRead(notification.id)}
+                    onClick={() => !notification.is_read && onMarkRead(notification.id)}
                     className={cn(
                       "p-4 rounded-2xl border transition-all cursor-pointer relative group",
-                      notification.read_at 
-                        ? "bg-white border-gray-100 opacity-60" 
+                      notification.is_read
+                        ? "bg-white border-gray-100 opacity-60"
                         : "bg-emerald-50/30 border-emerald-100 shadow-sm hover:shadow-md"
                     )}
                   >
@@ -101,13 +100,15 @@ export default function NotificationsPanel({
                       </span>
                       <div className="flex items-center gap-1 text-[10px] text-gray-400 font-medium">
                         <Clock className="w-3 h-3" />
-                        {format(new Date(notification.created_at), 'MMM d, h:mm a')}
+                        {notification.sent_at
+                          ? format(new Date(notification.sent_at), 'MMM d, h:mm a')
+                          : '—'}
                       </div>
                     </div>
                     <p className="text-sm text-gray-800 leading-relaxed pr-6">
-                      {notification.message}
+                      {notification.message_preview ?? 'No preview available'}
                     </p>
-                    {!notification.read_at && (
+                    {!notification.is_read && (
                       <div className="absolute top-4 right-4 w-2 h-2 bg-emerald-500 rounded-full" />
                     )}
                   </div>
