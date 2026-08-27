@@ -1,37 +1,127 @@
 // ═══════════════════════════════════════════════════════════════════════════
 // process-upload  —  En4tainment
-// Persists upload metadata after a direct-to-storage upload.
+// Persists upload metadata after a direct-to-Cloudinary upload.
 //
-//   • Cloudinary    — public assets (avatars, covers, portfolio)
-//   • Cloudflare R2 — sensitive assets (KYC, venue documents)
+// SCOPE: PUBLIC assets only (Cloudinary). Sensitive assets (kyc_front,
+// kyc_back, venue_document) are handled entirely by upload-document, which
+// receives the bytes, inspects them, writes to private R2, and writes the DB
+// row itself in one call. Those branches lived here previously and have been
+// removed — having two functions capable of writing talent_identity /
+// documents was the exact drift pattern that caused repeated bugs earlier in
+// this project. upload-document is now the only writer for those tables.
+//
+// SIZE ENFORCEMENT: cloudinary-sign never sees file bytes (the browser
+// uploads directly to Cloudinary), so this is the earliest point any
+// Supabase-side code can act on the actual size Cloudinary reported. If
+// bytes exceeds MAX_BYTES, the asset is destroyed on Cloudinary via the
+// Admin API before the DB row is written — the file must not survive on
+// Cloudinary AND be un-recorded in Supabase, or it becomes an orphaned,
+// billable, unreferenced, undeletable-by-normal-means asset.
+//
+// NOTE: bytes is client-reported (Cloudinary's own upload response, relayed
+// by the browser). This is a product-level backstop against accidental
+// oversized uploads, not a hard security boundary — a deliberately malicious
+// client could misreport bytes. It does not carry the same guarantee as
+// upload-document's server-side magic-byte/size check on actual bytes.
 //
 // The caller's identity always comes from the verified JWT, never the body.
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.0'
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+const ALLOWED_ORIGINS = [
+  'https://www.en4tainment.com',
+  'https://en4tainment.com',
+  'https://app.en4tainment.com',
+  'http://localhost:5173',
+  'http://localhost:3000',
+]
+
+function cors(req: Request): Record<string, string> {
+  const origin = req.headers.get('Origin') ?? ''
+  const allowed = ALLOWED_ORIGINS.includes(origin)
+  return {
+    'Access-Control-Allow-Origin': allowed ? origin : ALLOWED_ORIGINS[0],
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Vary': 'Origin',
+  }
 }
 
 const CLOUDINARY_TYPES = [
   'talent_avatar', 'talent_cover', 'talent_portfolio',
   'client_avatar', 'venue_avatar',
 ]
-const R2_TYPES = ['kyc_front', 'kyc_back', 'venue_document']
 
-// talent_media.resource_type enum: image | video | raw | audio
+// Single source of truth for the size cap on this path. Matches
+// upload-document's MAX_BYTES by product decision (one number, all
+// categories) — the two constants are independent because the two functions
+// have no shared module, so if either changes, check the other.
+const MAX_BYTES = 5 * 1024 * 1024 // 5 MiB
+
+// talent_media.resource_type enum: image | video | raw | audio.
+// chk_media_resource_type permits only image | video | raw — cloudinary-sign
+// no longer returns 'auto' for anything, so in practice this always resolves
+// to 'image' now. Kept general rather than hardcoded in case that changes.
 function toResourceType(mime?: string, hint?: string): string {
-  if (hint && ['image', 'video', 'raw', 'audio'].includes(hint)) return hint
+  if (hint && ['image', 'video', 'raw'].includes(hint)) return hint
   if (mime?.startsWith('image/')) return 'image'
   if (mime?.startsWith('video/')) return 'video'
-  if (mime?.startsWith('audio/')) return 'audio'
   return 'raw'
 }
 
+// Deletes an asset that already landed on Cloudinary but must not be kept.
+// Mirrors cloudinary-delete's proven pattern exactly:
+//   - Admin API DELETE /resources/image/upload, not POST /image/destroy —
+//     destroy returns {"result":"not found"} for assets that demonstrably
+//     exist when the account is in dynamic folder mode.
+//   - resource_type is hardcoded to 'image', matching cloudinary-sign, which
+//     never issues anything else today.
+//   - The per-asset outcome in the response body is checked explicitly.
+//     res.ok alone is not enough — Cloudinary can return 200 with a false
+//     'not_found' for an asset that is still live, and treating that as
+//     success would silently leave the oversized asset in place.
+async function destroyCloudinaryAsset(publicId: string): Promise<boolean> {
+  const cloudName = Deno.env.get('CLOUDINARY_CLOUD_NAME')
+  const apiKey    = Deno.env.get('CLOUDINARY_API_KEY')
+  const apiSecret = Deno.env.get('CLOUDINARY_API_SECRET')
+
+  if (!cloudName || !apiKey || !apiSecret) {
+    console.error('process-upload: missing Cloudinary env vars, cannot clean up', publicId)
+    return false
+  }
+
+  const authBasic = btoa(`${apiKey}:${apiSecret}`)
+  const url = new URL(`https://api.cloudinary.com/v1_1/${cloudName}/resources/image/upload`)
+  url.searchParams.append('public_ids[]', publicId)
+
+  try {
+    const res = await fetch(url.toString(), {
+      method: 'DELETE',
+      headers: { Authorization: `Basic ${authBasic}` },
+    })
+
+    if (!res.ok) {
+      console.error('process-upload: Cloudinary cleanup DELETE HTTP error', res.status, publicId)
+      return false
+    }
+
+    const data = await res.json()
+    const outcome = data?.deleted?.[publicId] ?? 'unknown'
+
+    if (outcome !== 'deleted') {
+      console.error('process-upload: Cloudinary cleanup did not confirm deletion', outcome, publicId)
+      return false
+    }
+    return true
+  } catch (err) {
+    console.error('process-upload: Cloudinary cleanup DELETE threw', String(err), publicId)
+    return false
+  }
+}
+
 Deno.serve(async (req: Request) => {
+  const corsHeaders = cors(req)
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
 
   const json = (body: unknown, status = 200) =>
@@ -41,7 +131,7 @@ Deno.serve(async (req: Request) => {
     })
 
   try {
-    // ── Authenticate ───────────────────────────────────────────────────────
+    // ── Authenticate ──────────────────────────────────────────────────
     const authHeader = req.headers.get('Authorization')
     if (!authHeader) return json({ error: 'Missing authorization header' }, 401)
 
@@ -62,29 +152,49 @@ Deno.serve(async (req: Request) => {
     const body = await req.json()
     const {
       asset_type,
-      public_id,          // Cloudinary public_id  OR  R2 object key
-      secure_url,         // Cloudinary only
-      storage_bucket,     // R2 only
-      content_type,       // mime, used to derive resource_type
-      resource_type,      // optional explicit override
-      media_type,         // optional, talent_portfolio only
+      public_id,
+      secure_url,
+      content_type,
+      resource_type,
+      media_type,   // talent_portfolio only
       bytes,
       format,
       title,
-      sort_order,
-      file_name,          // venue_document only
-      related_entity_id,  // venue_document only
+      sort_order,   // talent_portfolio only
     } = body
 
-    if (!asset_type) return json({ error: 'asset_type is required' }, 400)
-    if (!public_id)  return json({ error: 'public_id is required' }, 400)
+    if (!asset_type)  return json({ error: 'asset_type is required' }, 400)
+    if (!public_id)   return json({ error: 'public_id is required' }, 400)
+    if (!secure_url)  return json({ error: 'secure_url is required' }, 400)
 
-    const isR2 = R2_TYPES.includes(asset_type)
-    if (!isR2 && !CLOUDINARY_TYPES.includes(asset_type)) {
-      return json({ error: `Unknown asset_type: ${asset_type}` }, 400)
+    if (!CLOUDINARY_TYPES.includes(asset_type)) {
+      return json({
+        error: `Unknown or unsupported asset_type: ${asset_type}. ` +
+               `KYC and venue documents go through upload-document.`,
+      }, 400)
     }
-    if (isR2 && !storage_bucket) {
-      return json({ error: 'storage_bucket is required for this asset type' }, 400)
+
+    // ── Size enforcement ──────────────────────────────────────────────
+    // The file already landed on Cloudinary by the time this runs (direct
+    // browser upload). A client-side check in uploadToCloudinary.ts stops
+    // this in the common case, but that check is bypassable — this is the
+    // real, server-side backstop. If oversized, destroy the Cloudinary
+    // asset and reject before any DB row is written, so nothing durable
+    // (billable Cloudinary asset, or an orphaned/undersized-checked DB row)
+    // survives a rejected upload.
+    const resolvedResourceType = toResourceType(content_type, resource_type)
+
+    if (typeof bytes === 'number' && bytes > MAX_BYTES) {
+      const cleaned = await destroyCloudinaryAsset(public_id)
+      console.error(
+        'process-upload: rejected oversized upload',
+        { asset_type, public_id, bytes, max_bytes: MAX_BYTES, cloudinary_cleanup: cleaned },
+      )
+      return json({
+        error: `File exceeds the ${Math.round(MAX_BYTES / 1048576)}MB limit`,
+        max_bytes: MAX_BYTES,
+        received_bytes: bytes,
+      }, 413)
     }
 
     // Resolve auth uid → profile row. Never trust a client-sent profile id.
@@ -93,103 +203,6 @@ Deno.serve(async (req: Request) => {
         .from(table).select('id').eq('user_id', user.id).maybeSingle()
       return data?.id ?? null
     }
-
-    // ═══ SENSITIVE — KYC (R2) ════════════════════════════════════════════
-    if (asset_type === 'kyc_front' || asset_type === 'kyc_back') {
-      const talentId = await resolveProfile('profiles_talent')
-      if (!talentId) return json({ error: 'No talent profile for this user' }, 400)
-
-      const col = asset_type === 'kyc_front'
-        ? 'nic_front_public_id'
-        : 'nic_back_public_id'
-
-      // Store the image reference only. Status stays 'pending' here —
-      // advancing it now would violate the completeness constraint, since
-      // the other image and the NIC hash may not be present yet.
-      const { error: upsertError } = await admin
-        .from('talent_identity')
-        .upsert({
-          talent_id:          talentId,
-          [col]:              public_id,
-          nic_storage_bucket: storage_bucket,
-          updated_at:         new Date().toISOString(),
-        }, { onConflict: 'talent_id' })
-
-      if (upsertError) {
-        console.error('talent_identity upsert failed:', upsertError.code)
-        return json({ error: 'Failed to save KYC metadata' }, 500)
-      }
-
-      // Advance to 'submitted' only once all four pieces are in place.
-      const { data: row } = await admin
-        .from('talent_identity')
-        .select('nic_hash, nic_last_four, nic_front_public_id, nic_back_public_id, kyc_status')
-        .eq('talent_id', talentId)
-        .single()
-
-      const complete = !!(
-        row?.nic_hash &&
-        row?.nic_last_four &&
-        row?.nic_front_public_id &&
-        row?.nic_back_public_id
-      )
-
-      // The 'pending' guard stops a verified talent being knocked back to
-      // 'submitted' by re-uploading an image.
-      if (complete && row?.kyc_status === 'pending') {
-        const { error: statusError } = await admin
-          .from('talent_identity')
-          .update({ kyc_status: 'submitted', updated_at: new Date().toISOString() })
-          .eq('talent_id', talentId)
-
-        if (statusError) {
-          // Non-fatal: the upload saved. Status can be re-evaluated later.
-          console.error('kyc_status advance failed:', statusError.code)
-        }
-      }
-
-      return json({
-        success:    true,
-        asset_type,
-        storage:    'r2',
-        kyc_status: complete ? 'submitted' : 'pending',
-      })
-    }
-
-    // ═══ SENSITIVE — venue documents (R2) ════════════════════════════════
-    if (asset_type === 'venue_document') {
-      if (!file_name)         return json({ error: 'file_name is required' }, 400)
-      if (!related_entity_id) return json({ error: 'related_entity_id is required' }, 400)
-
-      const { data: venueRow } = await admin
-        .from('profiles_venues')
-        .select('id')
-        .eq('id', related_entity_id)
-        .eq('user_id', user.id)
-        .maybeSingle()
-
-      if (!venueRow) return json({ error: 'Not authorised for this venue' }, 403)
-
-      const { error } = await admin
-        .from('documents')
-        .insert({
-          related_entity_type: 'venue',
-          related_entity_id,
-          file_name,
-          storage_bucket,
-          file_path:           public_id,
-          uploaded_by_user_id: user.id,
-        })
-
-      if (error) {
-        console.error('documents insert failed:', error.code)
-        return json({ error: 'Failed to save document metadata' }, 500)
-      }
-      return json({ success: true, asset_type, storage: 'r2' })
-    }
-
-    // ═══ PUBLIC — Cloudinary ═════════════════════════════════════════════
-    if (!secure_url) return json({ error: 'secure_url is required' }, 400)
 
     // Talent avatar / cover
     if (asset_type === 'talent_avatar' || asset_type === 'talent_cover') {
@@ -212,7 +225,7 @@ Deno.serve(async (req: Request) => {
       return json({ success: true, asset_type, storage: 'cloudinary' })
     }
 
-    // Talent portfolio
+    // Talent portfolio (feature photos + gallery)
     if (asset_type === 'talent_portfolio') {
       const talentId = await resolveProfile('profiles_talent')
       if (!talentId) return json({ error: 'No talent profile for this user' }, 400)
@@ -223,7 +236,7 @@ Deno.serve(async (req: Request) => {
           talent_id:             talentId,
           cloudinary_public_id:  public_id,
           cloudinary_secure_url: secure_url,
-          resource_type:         toResourceType(content_type, resource_type),
+          resource_type:         resolvedResourceType,
           media_type:            media_type ?? 'gallery',
           format:                format ?? null,
           folder:                'en410/portfolio',
@@ -261,7 +274,7 @@ Deno.serve(async (req: Request) => {
     return json({ error: 'Unhandled asset_type' }, 400)
 
   } catch (err) {
-    console.error('process-upload error:', err)
+    console.error('process-upload error:', String(err))
     return json({ error: 'Internal server error' }, 500)
   }
 })
