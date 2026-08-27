@@ -65,7 +65,7 @@ export async function uploadToCloudinary(
   }
   const {
     signature, timestamp, cloud_name, api_key,
-    upload_preset, folder, resource_type,
+    upload_preset, folder, public_id, resource_type,
   } = signData
   // ── 2. Upload ───────────────────────────────────────────────────────────
   const formData = new FormData()
@@ -75,8 +75,10 @@ export async function uploadToCloudinary(
   formData.append('signature',     signature)
   formData.append('upload_preset', upload_preset)
   formData.append('folder',        folder)
-  // resource_type comes from the signer — 'auto' for portfolio so video and
-  // audio are accepted, 'image' for avatars and covers.
+  formData.append('public_id',     public_id)
+  // resource_type comes from the signer and is 'image' for every asset type,
+  // portfolio included. It was briefly 'auto', which routed uploads to
+  // /auto/upload and let video and audio through.
   const response = await fetch(
     `https://api.cloudinary.com/v1_1/${cloud_name}/${resource_type ?? 'image'}/upload`,
     { method: 'POST', body: formData }
