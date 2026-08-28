@@ -39,6 +39,15 @@
 #   Drift is usually introduced OUTSIDE this repo — someone edits a function
 #   in the Supabase Dashboard. No push or PR happens, so a PR-only trigger
 #   would never notice. The nightly run is what catches that case.
+#
+# ACTION PINNING
+#   Every `uses:` is pinned to a full 40-character commit SHA with the version
+#   in a trailing comment, matching the convention already used by ci.yml,
+#   gitleaks.yml and semgrep.yml. Mutable tags like @v4 can be silently
+#   repointed by the action owner — the trivy-action and kics-github-action
+#   compromises both worked that way — and Semgrep blocks on them.
+#   Dependabot is configured for the github-actions ecosystem weekly, so
+#   pinned SHAs still get updated automatically.
 # ═══════════════════════════════════════════════════════════════════════════
 
 name: Edge Function drift check
@@ -81,7 +90,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       # Fail early and clearly if the token is missing. Without this, the
       # CLI's own error ("Access token not provided") appears several steps
@@ -102,7 +111,7 @@ jobs:
         run: cp -r supabase/functions /tmp/repo-functions
 
       - name: Set up Supabase CLI
-        uses: supabase/setup-cli@v1
+        uses: supabase/setup-cli@ab058987d8d6c725971f6cf9d0b5c98467e30bd1 # v1
         with:
           version: latest
 
@@ -180,7 +189,7 @@ jobs:
       # page without re-running anything locally.
       - name: Upload diff artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: edge-function-drift-diff
           path: /tmp/drift.diff
