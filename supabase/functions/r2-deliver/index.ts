@@ -50,7 +50,9 @@ Deno.serve(async (req) => {
     const { data: { user }, error: authError } = await userClient.auth.getUser();
     if (authError || !user) return json({ error: "Unauthorized" }, 401);
 
-    const { asset_type, object_key, talent_id } = await req.json();
+    // talent_id is deliberately NOT read from the body. It used to be, and was
+    // written straight into the audit log — see the audit block below.
+    const { asset_type, object_key } = await req.json();
 
     if (!["kyc_front", "kyc_back", "venue_document"].includes(asset_type)) {
       return json({ error: "Unsupported asset_type" }, 400);
@@ -123,8 +125,22 @@ Deno.serve(async (req) => {
         asset_type,
         object_key,
         storage_bucket: R2_BUCKET,
+        // subject_talent_id is the TALENT whose identity document is being
+        // read. A venue document has no talent subject — its subject is the
+        // venue, and that is already carried by subject_entity_id below. So
+        // this is null on that branch rather than being filled from the body.
+        //
+        // It previously read `talent_id ?? null` from the request body. The
+        // caller is the party being audited, so letting them supply a field
+        // that lands in the audit row let them attribute their own access to
+        // an arbitrary talent, or null it out. Every other identity field in
+        // this insert comes from the verified JWT or from a row looked up
+        // server-side; this was the exception.
+        //
+        // Note the table has no foreign keys, so nothing at the database level
+        // would have rejected a fabricated uuid either.
         subject_talent_id: asset_type === "venue_document"
-          ? (talent_id ?? null)
+          ? null
           : subjectEntityId,
         subject_entity_id: asset_type === "venue_document"
           ? subjectEntityId
