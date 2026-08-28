@@ -12,10 +12,32 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.0'
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+const ALLOWED_ORIGINS = [
+  'https://www.en4tainment.com',
+  'https://en4tainment.com',
+  'https://app.en4tainment.com',
+  'http://localhost:5173',
+  'http://localhost:3000',
+];
+
+// Origin allowlist rather than '*'. Every caller of this function sends a JWT
+// in the Authorization header and a hostile origin cannot read a Supabase
+// session out of localStorage, so the wildcard was not an open door -- but it
+// is defence in depth, and the three Cloudinary functions already do this.
+// Kept byte-identical to the implementation in cloudinary-sign.
+//
+// Falls back to the canonical origin rather than echoing an unknown one, so an
+// unlisted origin gets a response the browser refuses instead of a permissive
+// one. Vary: Origin stops a cache serving one origin's response to another.
+function cors(req: Request): Record<string, string> {
+  const origin = req.headers.get('Origin') ?? '';
+  const allowed = ALLOWED_ORIGINS.includes(origin);
+  return {
+    'Access-Control-Allow-Origin': allowed ? origin : ALLOWED_ORIGINS[0],
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Vary': 'Origin',
+  };
 }
 
 // Sri Lankan NIC: 9 digits + V/X (old), or 12 digits (new).
@@ -44,6 +66,7 @@ async function hmacHex(key: string, message: string): Promise<string> {
 }
 
 Deno.serve(async (req: Request) => {
+  const corsHeaders = cors(req);
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
 
   const json = (body: unknown, status = 200) =>
