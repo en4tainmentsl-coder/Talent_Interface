@@ -59,6 +59,36 @@ const CLOUDINARY_TYPES = [
 // have no shared module, so if either changes, check the other.
 const MAX_BYTES = 5 * 1024 * 1024 // 5 MiB
 
+// ── Caller namespace ───────────────────────────────────────────────────────
+// cloudinary-sign generates public_id as `<prefix>_<uuid>` where prefix is an
+// HMAC of the caller's auth uid, and Cloudinary returns it folder-qualified as
+// `<folder>/<prefix>_<uuid>`. Recomputing the prefix from the verified JWT
+// proves the public_id being recorded is the one issued to this caller.
+//
+// Without this check any public_id is accepted, and because cloudinary-delete
+// treats the stored row as proof of ownership, a caller could write another
+// user's public_id into their own row and then delete that user's asset.
+//
+// DUPLICATED VERBATIM FROM cloudinary-sign. The two functions share no module.
+// If PREFIX_LEN, the separator, the hash, or the secret name changes there,
+// change it here in the same PR or every upload will fail verification.
+const PREFIX_LEN = 16
+
+async function callerPrefix(userId: string, secret: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  )
+  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(userId))
+  return Array.from(new Uint8Array(sig))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+    .slice(0, PREFIX_LEN)
+}
+
 // talent_media.resource_type enum: image | video | raw | audio.
 // chk_media_resource_type permits only image | video | raw — cloudinary-sign
 // no longer returns 'auto' for anything, so in practice this always resolves
@@ -172,6 +202,49 @@ Deno.serve(async (req: Request) => {
         error: `Unknown or unsupported asset_type: ${asset_type}. ` +
                `KYC and venue documents go through upload-document.`,
       }, 400)
+    }
+
+    // ── Ownership of the public_id ────────────────────────────────────
+    // Runs BEFORE size enforcement on purpose. A failure here means the
+    // public_id is not ours to touch, so it must not be passed to the
+    // Cloudinary destroy call that oversized uploads trigger — doing so
+    // would turn this check into the deletion primitive it exists to stop.
+    const nsSecret = Deno.env.get('UPLOAD_NAMESPACE_SECRET')
+    if (!nsSecret) {
+      console.error('process-upload: UPLOAD_NAMESPACE_SECRET is not set')
+      return json({ error: 'Server misconfiguration' }, 500)
+    }
+
+    // Cloudinary returns public_id folder-qualified (`<folder>/<prefix>_<uuid>`),
+    // so the namespace is on the last path segment, not the start of the string.
+    const expectedPrefix = await callerPrefix(user.id, nsSecret)
+    const lastSegment    = String(public_id).split('/').pop() ?? ''
+
+    if (!lastSegment.startsWith(`${expectedPrefix}_`)) {
+      console.error('process-upload: public_id namespace mismatch', { asset_type })
+      return json({ error: 'public_id was not issued to this caller' }, 403)
+    }
+
+    // ── secure_url sanity ─────────────────────────────────────────────
+    // secure_url is client-supplied and gets rendered on public profile
+    // pages. Unvalidated it can point anywhere, including an attacker
+    // endpoint that logs the IP of every viewer — a PDPA problem, not just
+    // a correctness one. Require a Cloudinary https URL that actually
+    // refers to the public_id being recorded.
+    let parsedUrl: URL
+    try {
+      parsedUrl = new URL(String(secure_url))
+    } catch {
+      return json({ error: 'secure_url is not a valid URL' }, 400)
+    }
+
+    if (
+      parsedUrl.protocol !== 'https:' ||
+      parsedUrl.hostname !== 'res.cloudinary.com' ||
+      !parsedUrl.pathname.includes(String(public_id))
+    ) {
+      console.error('process-upload: secure_url did not match public_id', { asset_type })
+      return json({ error: 'secure_url does not match the expected Cloudinary asset' }, 400)
     }
 
     // ── Size enforcement ──────────────────────────────────────────────

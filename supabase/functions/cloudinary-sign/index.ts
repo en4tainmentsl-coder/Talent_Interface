@@ -37,6 +37,44 @@ function cors(req: Request): Record<string, string> {
 
 const MIGRATED_TO_R2 = ['kyc_front', 'kyc_back', 'venue_document']
 
+// ── Caller namespace ───────────────────────────────────────────────────────
+// The generated public_id is prefixed with a per-user namespace derived from
+// the auth uid, so process-upload can verify from the JWT alone that the
+// public_id it is asked to record was the one issued to that caller.
+//
+// Without this, process-upload accepts any public_id the client sends. Since
+// cloudinary-delete treats the stored row as proof of ownership, a caller
+// could write another user's public_id into their own row and then delete
+// that user's asset.
+//
+// HMAC rather than the raw uid: public_id appears in every public image URL,
+// so the raw uid would let anyone correlate a user across their assets. The
+// HMAC is deterministic — the same user always gets the same prefix — but not
+// reversible.
+//
+// Underscore separator: '/' would create a new path segment, and '-' already
+// occurs inside UUIDs.
+//
+// DUPLICATED VERBATIM IN process-upload. The two functions share no module.
+// If PREFIX_LEN, the separator, the hash, or the secret name changes here,
+// change it there in the same PR or every upload will fail verification.
+const PREFIX_LEN = 16
+
+async function callerPrefix(userId: string, secret: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  )
+  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(userId))
+  return Array.from(new Uint8Array(sig))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+    .slice(0, PREFIX_LEN)
+}
+
 // resource_type is 'image' everywhere. Portfolio was previously 'auto', which
 // routed uploads to /auto/upload and allowed video and audio through — the
 // talent_media CHECK and the product decision both say image-only.
@@ -96,9 +134,18 @@ Deno.serve(async (req: Request) => {
     const cloudName = Deno.env.get('CLOUDINARY_CLOUD_NAME')
     const apiKey    = Deno.env.get('CLOUDINARY_API_KEY')
     const apiSecret = Deno.env.get('CLOUDINARY_API_SECRET')
+    const nsSecret  = Deno.env.get('UPLOAD_NAMESPACE_SECRET')
 
-    if (!cloudName || !apiKey || !apiSecret) {
-      console.error('cloudinary-sign: missing Cloudinary env vars')
+    // Fail closed on a missing namespace secret. Signing without a prefix
+    // would produce public_ids that process-upload then rejects, which looks
+    // like a broken upload rather than a misconfiguration.
+    if (!cloudName || !apiKey || !apiSecret || !nsSecret) {
+      console.error('cloudinary-sign: missing env vars', {
+        cloud_name: !!cloudName,
+        api_key: !!apiKey,
+        api_secret: !!apiSecret,
+        namespace_secret: !!nsSecret,
+      })
       return json({ error: 'Server misconfiguration' }, 500)
     }
 
@@ -113,7 +160,14 @@ Deno.serve(async (req: Request) => {
     //
     // Generated server-side and never taken from the request: a client-supplied
     // public_id would let a caller aim the upload at someone else's asset path.
-    const publicId = crypto.randomUUID()
+    //
+    // The value sent to Cloudinary is the bare `<prefix>_<uuid>`. Cloudinary
+    // prepends `folder` itself, so what comes back — and what process-upload
+    // is handed — is `<folder>/<prefix>_<uuid>`. Verified against live rows:
+    // stored public_ids are folder-qualified, e.g. en4tainment/avatars/<id>.
+    // That is why process-upload checks the last path segment rather than the
+    // start of the string.
+    const publicId = `${await callerPrefix(user.id, nsSecret)}_${crypto.randomUUID()}`
 
     // Cloudinary requires parameters sorted alphabetically by key, joined with
     // '&', with the API secret appended directly to the end (no separator).
