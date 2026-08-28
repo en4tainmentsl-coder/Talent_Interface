@@ -1,0 +1,197 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# Edge Function drift check
+#
+# WHAT THIS IS FOR
+#   Supabase Edge Functions can be changed through three different paths, and
+#   only one of them updates this repository:
+#
+#     1. Supabase Dashboard editor   → deploys, writes no file here
+#     2. `supabase functions deploy` → deploys whatever is on the operator's
+#                                      local disk, which may be stale
+#     3. Committing a file here      → changes nothing in production
+#
+#   So the repo and production drift apart silently, and nothing surfaces it
+#   until someone reads both. This has happened four times:
+#
+#     - PR #30, a deliberate sync, which drifted again afterwards
+#     - a manual sync on 2026-08-26 that missed `process-upload`
+#     - `cloudinary-delete`, found stale on 2026-08-28 carrying a
+#       pre-hardening version with a cross-user asset deletion hole
+#     - 2026-08-28, a deploy from a Codespace whose `main` was months behind,
+#       which silently pushed an ancient `cloudinary-sign` to production and
+#       reported success
+#
+#   Convention has been tried twice and failed twice. This job turns silent
+#   drift into a visible build failure.
+#
+# WHAT IT DOES NOT DO
+#   It does not deploy. It only compares. Deployment stays manual and
+#   deliberate, because deploy ordering sometimes matters — the 2026-08-28
+#   `public_id` change required `cloudinary-sign` to go out strictly before
+#   `process-upload`, and an auto-deploy could not have guaranteed that.
+#
+#   Consequence: a green check here means "repo matches production", NOT
+#   "production is up to date". After merging a change to a function you must
+#   still deploy it, and this job will FAIL until you do. That failure is
+#   correct and is the reminder.
+#
+# WHY IT RUNS ON A SCHEDULE AS WELL AS ON PR
+#   Drift is usually introduced OUTSIDE this repo — someone edits a function
+#   in the Supabase Dashboard. No push or PR happens, so a PR-only trigger
+#   would never notice. The nightly run is what catches that case.
+#
+# ACTION PINNING
+#   Every `uses:` is pinned to a full 40-character commit SHA with the version
+#   in a trailing comment, matching the convention already used by ci.yml,
+#   gitleaks.yml and semgrep.yml. Mutable tags like @v4 can be silently
+#   repointed by the action owner — the trivy-action and kics-github-action
+#   compromises both worked that way — and Semgrep blocks on them.
+#   Dependabot is configured for the github-actions ecosystem weekly, so
+#   pinned SHAs still get updated automatically.
+# ═══════════════════════════════════════════════════════════════════════════
+
+name: Edge Function drift check
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/functions/**'
+      - '.github/workflows/edge-function-drift.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/functions/**'
+      - '.github/workflows/edge-function-drift.yml'
+  schedule:
+    # 02:30 UTC daily = 08:00 Asia/Colombo. Catches Dashboard edits, which
+    # produce no repo event at all.
+    - cron: '30 2 * * *'
+  # Allows a manual run from the Actions tab, e.g. straight after deploying,
+  # to confirm the deploy actually took.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  drift:
+    name: Compare repo against deployed
+    runs-on: ubuntu-latest
+
+    env:
+      # Project ref is not a secret — it appears in every public API URL.
+      # Keeping it inline makes the job readable and avoids a secret that
+      # silently empties if someone renames it.
+      PROJECT_REF: sqovyodycuyajmumcjnn
+      # This IS a secret. A Supabase personal access token with access to the
+      # project. Create at https://supabase.com/dashboard/account/tokens and
+      # add as an Actions repository secret named SUPABASE_ACCESS_TOKEN.
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      # Fail early and clearly if the token is missing. Without this, the
+      # CLI's own error ("Access token not provided") appears several steps
+      # later and reads like a CLI bug rather than a missing secret.
+      - name: Verify access token is present
+        run: |
+          if [ -z "$SUPABASE_ACCESS_TOKEN" ]; then
+            echo "::error::SUPABASE_ACCESS_TOKEN is not set."
+            echo "Add a Supabase personal access token as an Actions repository secret."
+            echo "Create one at https://supabase.com/dashboard/account/tokens"
+            exit 1
+          fi
+
+      # Keep a pristine copy of the repo's functions BEFORE downloading,
+      # because `supabase functions download` overwrites supabase/functions
+      # in place. This copy is the left-hand side of the comparison.
+      - name: Snapshot repo copy of functions
+        run: cp -r supabase/functions /tmp/repo-functions
+
+      - name: Set up Supabase CLI
+        uses: supabase/setup-cli@ab058987d8d6c725971f6cf9d0b5c98467e30bd1 # v1
+        with:
+          version: latest
+
+      # --use-api unbundles server-side, so no Docker is needed on the runner.
+      # Downloads all functions when no name is given.
+      - name: Download deployed functions
+        run: supabase functions download --use-api --project-ref "$PROJECT_REF"
+
+      # ── Why normalisation is needed ──────────────────────────────────────
+      # The deploy bundler strips the trailing newline from every file, so a
+      # downloaded function NEVER ends with one. Most editors, and GitHub's
+      # web editor in particular, ADD a trailing newline on save (POSIX says
+      # text files should end with one).
+      #
+      # So a file that is semantically identical still differs by that single
+      # byte. Verified 2026-08-28: of seven functions, five matched byte for
+      # byte and two differed ONLY by `\ No newline at end of file`.
+      #
+      # Comparing raw bytes would therefore fail permanently on those files,
+      # for a reason nobody can act on — and a check that always fails is a
+      # check everyone learns to ignore, which is worse than no check.
+      #
+      # We normalise the COMPARISON rather than the source files. The
+      # alternative — stripping trailing newlines from the committed files —
+      # was considered and rejected: it fights every editor and lint tool, and
+      # any future edit through the GitHub web UI would silently re-add it.
+      #
+      # `sed -e '$a\'` appends a newline to the last line only if one is
+      # missing, making both sides end consistently. It touches nothing else,
+      # so real content differences still surface.
+      - name: Normalise trailing newlines on both sides
+        # Explicitly bash: this uses `read -d`, which is a bash builtin option
+        # and is NOT available in sh/dash. GitHub's default shell on Linux
+        # runners is already bash, but naming it here means the step does not
+        # break silently if that default ever changes or the job is copied to
+        # a runner configured otherwise.
+        shell: bash
+        run: |
+          normalise() {
+            find "$1" -type f -name '*.ts' -print0 \
+              | while IFS= read -r -d '' f; do
+                  sed -i -e '$a\' "$f"
+                done
+          }
+          normalise /tmp/repo-functions
+          normalise supabase/functions
+
+      - name: Compare
+        run: |
+          # Compare directory trees, not just known filenames, so a function
+          # deployed but never committed (or committed but never deployed)
+          # shows up as an added/removed directory rather than being missed.
+          if diff -ru /tmp/repo-functions supabase/functions > /tmp/drift.diff 2>&1; then
+            echo "No drift. Repo matches deployed functions on project $PROJECT_REF."
+            exit 0
+          fi
+
+          echo "::error::Edge Function drift detected — the repo and deployed functions differ."
+          echo ""
+          echo "This means one of:"
+          echo "  a) a function was changed in the Supabase Dashboard and never committed"
+          echo "  b) a function was committed here and never deployed"
+          echo "  c) someone deployed from a stale working tree"
+          echo ""
+          echo "Resolve by deciding which side is correct, then either commit the"
+          echo "deployed source or deploy the committed source. Do not assume the"
+          echo "repo is right — on 2026-08-28 the DEPLOYED copy was the correct one"
+          echo "and the repo carried a known vulnerability."
+          echo ""
+          echo "───────────────────────── diff ─────────────────────────"
+          cat /tmp/drift.diff
+          exit 1
+
+      # Uploaded regardless of outcome so the diff is retrievable from the run
+      # page without re-running anything locally.
+      - name: Upload diff artifact
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: edge-function-drift-diff
+          path: /tmp/drift.diff
+          if-no-files-found: ignore
+          retention-days: 14
