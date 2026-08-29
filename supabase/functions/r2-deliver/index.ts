@@ -10,10 +10,18 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { AwsClient } from "https://esm.sh/aws4fetch@1.0.20";
 
+// NOTE: this list deliberately DIVERGES from the other six functions.
+// admin.en4tainment.com is added here only. The Directus KYC review
+// extension calls r2-deliver from that origin; nothing in the admin panel
+// has any reason to call cloudinary-sign, upload-document or the delete
+// functions, and granting it there would widen their surface for no gain.
+// If the panel ever needs one of those, add it deliberately rather than
+// inheriting it.
 const ALLOWED_ORIGINS = [
   "https://www.en4tainment.com",
   "https://en4tainment.com",
   "https://app.en4tainment.com",
+  "https://admin.en4tainment.com",
   "http://localhost:5173",
   "http://localhost:3000",
 ];
