@@ -110,10 +110,19 @@ jobs:
       - name: Snapshot repo copy of functions
         run: cp -r supabase/functions /tmp/repo-functions
 
+      # The CLI version is pinned, not `latest`. The header above argues that
+      # mutable references can change under you — that applies to the tool
+      # doing the comparison as much as to the action that installs it. A CLI
+      # change to `functions download` output would turn this job red with no
+      # commit to blame.
+      #
+      # Note Dependabot does NOT track this input (it is a string, not a
+      # dependency), so bumping it is manual. Check against
+      # https://github.com/supabase/cli/releases when this job starts lagging.
       - name: Set up Supabase CLI
         uses: supabase/setup-cli@ab058987d8d6c725971f6cf9d0b5c98467e30bd1 # v1
         with:
-          version: latest
+          version: 2.116.0
 
       # --use-api unbundles server-side, so no Docker is needed on the runner.
       # Downloads all functions when no name is given.
