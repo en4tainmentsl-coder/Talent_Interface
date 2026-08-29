@@ -121,7 +121,7 @@ export default function ProfileEditor() {
   const [uploadingTarget, setUploadingTarget] = useState<string | null>(null);
   const agreementRef = useRef<HTMLDivElement>(null);
 
-  const { register, handleSubmit, reset, setValue, formState: { errors } } =
+  const { register, handleSubmit, reset, setValue, setError, formState: { errors } } =
     useForm<ProfileFormValues>({
       resolver: zodResolver(profileSchema),
       defaultValues: {
@@ -212,6 +212,21 @@ export default function ProfileEditor() {
 
   const onSubmit = async (values: ProfileFormValues) => {
     if (!user) return;
+
+    // Blank is only "no change" when a number is already on file. With no
+    // hash stored, blank means the NIC is never hashed at all -- the images
+    // upload via upload-document, submit-nic never runs, and the profile
+    // sits at kyc_status 'pending' with no error and no way forward.
+    // talent_identity_complete_when_submitted_check makes that row unable to
+    // leave 'pending', so the talent is stuck with nothing explaining why.
+    if (!kycData?.nic_last_four && !values.national_id_number) {
+      setError('national_id_number', {
+        type: 'manual',
+        message: 'Your NIC number is required to complete identity verification.',
+      });
+      return;
+    }
+
     setPendingValues(values);
     setShowAgreement(true);
     setHasReadToBottom(false);
@@ -572,9 +587,14 @@ export default function ProfileEditor() {
                   placeholder={kycData?.nic_last_four ? 'Enter a new number to replace' : '200012345678 or 901234567V'}
                   className="w-full p-3 rounded-xl border focus:ring-2 focus:ring-emerald-500 outline-none"
                 />
-                {kycData?.nic_last_four && (
+                {kycData?.nic_last_four ? (
                   <p className="text-xs text-gray-500">
                     On file: •••••••••{kycData.nic_last_four} — leave blank to keep it unchanged.
+                  </p>
+                ) : (
+                  <p className="text-xs text-gray-500">
+                    Required. Your NIC number is hashed on our servers and never
+                    stored in full.
                   </p>
                 )}
                 {errors.national_id_number && (
