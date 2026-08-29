@@ -95,19 +95,53 @@ Deno.serve(async (req) => {
       region: "auto",
     });
 
-    const res = await aws.fetch(
-      `${R2_ENDPOINT}/${R2_BUCKET}/${object_key}`,
-      { method: "DELETE" },
-    );
+    const objectUrl = `${R2_ENDPOINT}/${R2_BUCKET}/${object_key}`;
 
-    // R2 returns 204 on success, and also when the key never existed.
+    // ── Existence check BEFORE the delete ────────────────────────────────
+    // R2 returns 204 from DELETE whether or not the key was there, so a bare
+    // success response cannot distinguish "removed it" from "it was never
+    // there". An erasure under PDPA s.16 has to be evidenced, not assumed —
+    // and s.17(3) may require that record to be produced to the Authority.
+    const beforeRes = await aws.fetch(objectUrl, { method: "HEAD" });
+
+    if (beforeRes.status !== 200 && beforeRes.status !== 404) {
+      console.error("R2 HEAD (before) failed:", beforeRes.status);
+      return json({ error: "Storage check failed" }, 502);
+    }
+    const existedBefore = beforeRes.status === 200;
+
+    const res = await aws.fetch(objectUrl, { method: "DELETE" });
+
     if (!res.ok && res.status !== 404) {
       const detail = await res.text();
       console.error("R2 delete failed:", res.status, detail);
       return json({ error: "Delete failed" }, 502);
     }
 
-    return json({ success: true, object_key });
+    // ── Confirm absence AFTER the delete ─────────────────────────────────
+    // R2 is strongly consistent, so a 404 here is a real answer rather than
+    // a race. Anything else means the object survived and the caller must
+    // not be told the erasure succeeded.
+    const afterRes = await aws.fetch(objectUrl, { method: "HEAD" });
+    const verifiedAbsent = afterRes.status === 404;
+
+    if (!verifiedAbsent) {
+      console.error("R2 object still present after delete:", afterRes.status);
+      return json({
+        error: "Delete could not be verified",
+        object_key,
+        existed_before: existedBefore,
+        verified_absent: false,
+      }, 502);
+    }
+
+    return json({
+      success: true,
+      object_key,
+      existed_before: existedBefore,
+      verified_absent: true,
+    });
+    
   } catch (err) {
     console.error("r2-delete error:", err);
     return json({ error: "Internal server error" }, 500);
