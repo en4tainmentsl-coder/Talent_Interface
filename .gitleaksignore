@@ -1,0 +1,15 @@
+# Findings confirmed benign on 2026-08-29, during the first full-history scan.
+# The CI step had been running setup-node instead of gitleaks, so no history
+# had ever been swept until then.
+#
+# 1. src/supabase.ts — the Supabase anon key. Public by design; its JWT
+#    payload decodes to role=anon, ref=sqovyodycuyajmumcjnn. It grants nothing
+#    alone: every sensitive path is gated by RLS or by the role check inside
+#    the Edge Functions.
+# 2. supabase/DEPLOYMENT.md — the literal string YOUR_ANON_KEY in a curl
+#    example. A placeholder, matched on the shape of a Bearer header.
+#
+# Entries are commit-and-line specific, so a genuine new secret in either file
+# still fires.
+131a79b943c0a2d732b6a40554694835cfe04ec0:src/supabase.ts:jwt:4
+2b45869850324aabbd42b48b4a0c8e9f71f2e1b0:supabase/DEPLOYMENT.md:curl-auth-header:90

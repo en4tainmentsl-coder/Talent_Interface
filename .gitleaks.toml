@@ -21,3 +21,4 @@ regexes = [
   '''MY_GEMINI_API_KEY''',
   '''MY_APP_URL''',
 ]
+
