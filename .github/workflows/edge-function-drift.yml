@@ -90,7 +90,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Fail early and clearly if the token is missing. Without this, the
       # CLI's own error ("Access token not provided") appears several steps
@@ -120,7 +120,7 @@ jobs:
       # dependency), so bumping it is manual. Check against
       # https://github.com/supabase/cli/releases when this job starts lagging.
       - name: Set up Supabase CLI
-        uses: supabase/setup-cli@ab058987d8d6c725971f6cf9d0b5c98467e30bd1 # v1
+        uses: supabase/setup-cli@ab058987d8d6c725971f6cf9d0b5c98467e30bd1 # v1.7.1
         with:
           version: 2.116.0
 
@@ -198,7 +198,7 @@ jobs:
       # page without re-running anything locally.
       - name: Upload diff artifact
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: edge-function-drift-diff
           path: /tmp/drift.diff
