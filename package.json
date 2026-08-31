@@ -20,7 +20,7 @@
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
     "lucide-react": "^1.31.0",
-    "motion": "^12.23.24",
+    "motion": "^13.1.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-hook-form": "^7.85.0",
