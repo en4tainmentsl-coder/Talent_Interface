@@ -23,15 +23,32 @@ export default function Dashboard() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
+    // bookings.talent_id and talent_payout_transactions.talent_id reference
+    // profiles_talent.id, NOT the auth user id. Filtering on user.id matched
+    // nothing and returned zero rows silently.
+    const { data: talentProfile } = await supabase
+      .from('profiles_talent')
+      .select('id')
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    if (!talentProfile) {
+      setLoading(false);
+      return;
+    }
+    const talentId = talentProfile.id;
+
     // Fetch Bookings for stats
     const { data: bookingsData } = await supabase
       .from('bookings')
-      .select('status')
-      .eq('talent_id', user.id);
+      .select('booking_status')
+      .eq('talent_id', talentId);
 
     if (bookingsData) {
-      const upcoming = bookingsData.filter(b => b.status === 'confirmed' || b.status === 'in_progress').length;
-      const completed = bookingsData.filter(b => b.status === 'completed').length;
+      // booking_status enum: pending, confirmed, cancelled, completed, disputed.
+      // 'in_progress' is not a member and never matched anything.
+      const upcoming = bookingsData.filter(b => b.booking_status === 'confirmed').length;
+      const completed = bookingsData.filter(b => b.booking_status === 'completed').length;
       
       setStats(prev => ({
         ...prev,
@@ -44,7 +61,7 @@ export default function Dashboard() {
     const { data: earningsData } = await supabase
       .from('talent_payout_transactions')
       .select('*')
-      .eq('talent_id', user.id)
+      .eq('talent_id', talentId)
       .order('created_at', { ascending: false });
 
     if (earningsData) {
