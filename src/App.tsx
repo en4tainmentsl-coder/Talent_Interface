@@ -115,11 +115,11 @@ export default function App() {
   const markAsRead = async (id: string) => {
     const { error } = await supabase
       .from('notifications')
-      .update({ read_at: new Date().toISOString() })
+      .update({ is_read: true })
       .eq('id', id);
     
     if (!error) {
-      setNotifications(prev => prev.map(n => n.id === id ? { ...n, read_at: new Date().toISOString() } : n));
+      setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n));
     }
   };
 
@@ -127,16 +127,16 @@ export default function App() {
     if (!session?.user) return;
     const { error } = await supabase
       .from('notifications')
-      .update({ read_at: new Date().toISOString() })
+      .update({ is_read: true })
       .eq('user_id', session.user.id)
-      .is('read_at', null);
+      .eq('is_read', false);
     
     if (!error) {
-      setNotifications(prev => prev.map(n => ({ ...n, read_at: n.read_at || new Date().toISOString() })));
+      setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
     }
   };
 
-  const unreadCount = notifications.filter(n => !n.read_at).length;
+  const unreadCount = notifications.filter(n => !n.is_read).length;
 
   if (!session) {
     return (
