@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router';
 import { supabase } from '../supabase';
+import type { Database } from '../database.types';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -242,7 +243,7 @@ export default function ProfileEditor() {
 
       // Explicit column mapping. Never spread form values into an upsert —
       // PostgREST rejects the whole statement if any key is not a column.
-      const row: Record<string, unknown> = {
+      const row: Database['public']['Tables']['profiles_talent']['Insert'] = {
         user_id:                   user.id,
         stage_name:                v.stage_name,
         full_name:                 v.full_name,
