@@ -199,13 +199,14 @@ export type Database = {
       }
       bookings: {
         Row: {
-          agreed_gross_amount: number
           auto_completed: boolean
           bank_charge_amount: number
+          base_amount: number
           booking_status: Database["public"]["Enums"]["booking_status"]
           client_total_amount: number
           client_user_id: string
           commission_amount: number
+          commission_rate_percent: number | null
           completed_at: string | null
           completed_by_user_id: string | null
           contract_id: string | null
@@ -213,28 +214,35 @@ export type Database = {
           currency: string
           deposit_amount: number | null
           ends_at: string
+          equipment_fee_amount: number
           event_id: string | null
           gateway_fee_amount: number
+          gateway_rate_percent: number | null
           id: string
           message_to_talent: string | null
           payment_advanced: boolean
           payment_advanced_at: string | null
           quote_id: string
           sscl_amount: number
+          sscl_rate_percent: number | null
           starts_at: string
+          talent_fee_amount: number
           talent_id: string
-          talent_net_amount: number | null
+          talent_payout_amount: number | null
+          travel_fee_amount: number
           vat_amount: number
+          vat_rate_percent: number | null
           venue_id: string | null
         }
         Insert: {
-          agreed_gross_amount?: number
           auto_completed?: boolean
           bank_charge_amount?: number
+          base_amount?: number
           booking_status?: Database["public"]["Enums"]["booking_status"]
           client_total_amount?: number
           client_user_id: string
           commission_amount?: number
+          commission_rate_percent?: number | null
           completed_at?: string | null
           completed_by_user_id?: string | null
           contract_id?: string | null
@@ -242,28 +250,35 @@ export type Database = {
           currency?: string
           deposit_amount?: number | null
           ends_at: string
+          equipment_fee_amount?: number
           event_id?: string | null
           gateway_fee_amount?: number
+          gateway_rate_percent?: number | null
           id?: string
           message_to_talent?: string | null
           payment_advanced?: boolean
           payment_advanced_at?: string | null
           quote_id: string
           sscl_amount?: number
+          sscl_rate_percent?: number | null
           starts_at: string
+          talent_fee_amount?: number
           talent_id: string
-          talent_net_amount?: number | null
+          talent_payout_amount?: number | null
+          travel_fee_amount?: number
           vat_amount?: number
+          vat_rate_percent?: number | null
           venue_id?: string | null
         }
         Update: {
-          agreed_gross_amount?: number
           auto_completed?: boolean
           bank_charge_amount?: number
+          base_amount?: number
           booking_status?: Database["public"]["Enums"]["booking_status"]
           client_total_amount?: number
           client_user_id?: string
           commission_amount?: number
+          commission_rate_percent?: number | null
           completed_at?: string | null
           completed_by_user_id?: string | null
           contract_id?: string | null
@@ -271,18 +286,24 @@ export type Database = {
           currency?: string
           deposit_amount?: number | null
           ends_at?: string
+          equipment_fee_amount?: number
           event_id?: string | null
           gateway_fee_amount?: number
+          gateway_rate_percent?: number | null
           id?: string
           message_to_talent?: string | null
           payment_advanced?: boolean
           payment_advanced_at?: string | null
           quote_id?: string
           sscl_amount?: number
+          sscl_rate_percent?: number | null
           starts_at?: string
+          talent_fee_amount?: number
           talent_id?: string
-          talent_net_amount?: number | null
+          talent_payout_amount?: number | null
+          travel_fee_amount?: number
           vat_amount?: number
+          vat_rate_percent?: number | null
           venue_id?: string | null
         }
         Relationships: [
@@ -2941,6 +2962,7 @@ export type Database = {
           date_of_birth: string | null
           email: string | null
           en4tainment_profile_id: string | null
+          equipment_fee_percent: number
           feature_sort_order: number | null
           featured_at: string | null
           featured_by: string | null
@@ -2968,7 +2990,6 @@ export type Database = {
           short_bio: string | null
           stage_name: string | null
           tertiary_genre_id: string | null
-          travel_radius_km: number | null
           type_of_ensemble: string | null
           type_of_performer: Database["public"]["Enums"]["talent_type"]
           updated_at: string
@@ -2987,6 +3008,7 @@ export type Database = {
           date_of_birth?: string | null
           email?: string | null
           en4tainment_profile_id?: string | null
+          equipment_fee_percent?: number
           feature_sort_order?: number | null
           featured_at?: string | null
           featured_by?: string | null
@@ -3014,7 +3036,6 @@ export type Database = {
           short_bio?: string | null
           stage_name?: string | null
           tertiary_genre_id?: string | null
-          travel_radius_km?: number | null
           type_of_ensemble?: string | null
           type_of_performer?: Database["public"]["Enums"]["talent_type"]
           updated_at?: string
@@ -3033,6 +3054,7 @@ export type Database = {
           date_of_birth?: string | null
           email?: string | null
           en4tainment_profile_id?: string | null
+          equipment_fee_percent?: number
           feature_sort_order?: number | null
           featured_at?: string | null
           featured_by?: string | null
@@ -3060,7 +3082,6 @@ export type Database = {
           short_bio?: string | null
           stage_name?: string | null
           tertiary_genre_id?: string | null
-          travel_radius_km?: number | null
           type_of_ensemble?: string | null
           type_of_performer?: Database["public"]["Enums"]["talent_type"]
           updated_at?: string
@@ -3356,6 +3377,7 @@ export type Database = {
       }
       quotes: {
         Row: {
+          base_amount: number | null
           commission_amount: number | null
           commission_rate_percent: number
           created_at: string
@@ -3363,6 +3385,8 @@ export type Database = {
           equipment_notes: string | null
           equipment_provided_by: Database["public"]["Enums"]["equipment_responsibility"]
           expires_at: string
+          gateway_fee_amount: number | null
+          gateway_rate_percent: number
           id: string
           notes_to_client: string | null
           performer_count: number | null
@@ -3371,13 +3395,20 @@ export type Database = {
           quoted_amount: number
           sent_at: string
           setup_arrival_at: string | null
+          sscl_amount: number | null
+          sscl_rate_percent: number
           talent_id: string
-          talent_net_earnings: number | null
+          talent_payout_amount: number | null
           total_client_price: number | null
+          travel_coordinates_estimated: boolean
+          travel_distance_km: number | null
           travel_fee: number | null
           updated_at: string | null
+          vat_amount: number | null
+          vat_rate_percent: number
         }
         Insert: {
+          base_amount?: number | null
           commission_amount?: number | null
           commission_rate_percent?: number
           created_at?: string
@@ -3385,6 +3416,8 @@ export type Database = {
           equipment_notes?: string | null
           equipment_provided_by?: Database["public"]["Enums"]["equipment_responsibility"]
           expires_at: string
+          gateway_fee_amount?: number | null
+          gateway_rate_percent?: number
           id?: string
           notes_to_client?: string | null
           performer_count?: number | null
@@ -3393,13 +3426,20 @@ export type Database = {
           quoted_amount: number
           sent_at?: string
           setup_arrival_at?: string | null
+          sscl_amount?: number | null
+          sscl_rate_percent?: number
           talent_id: string
-          talent_net_earnings?: number | null
+          talent_payout_amount?: number | null
           total_client_price?: number | null
+          travel_coordinates_estimated?: boolean
+          travel_distance_km?: number | null
           travel_fee?: number | null
           updated_at?: string | null
+          vat_amount?: number | null
+          vat_rate_percent?: number
         }
         Update: {
+          base_amount?: number | null
           commission_amount?: number | null
           commission_rate_percent?: number
           created_at?: string
@@ -3407,6 +3447,8 @@ export type Database = {
           equipment_notes?: string | null
           equipment_provided_by?: Database["public"]["Enums"]["equipment_responsibility"]
           expires_at?: string
+          gateway_fee_amount?: number | null
+          gateway_rate_percent?: number
           id?: string
           notes_to_client?: string | null
           performer_count?: number | null
@@ -3415,11 +3457,17 @@ export type Database = {
           quoted_amount?: number
           sent_at?: string
           setup_arrival_at?: string | null
+          sscl_amount?: number | null
+          sscl_rate_percent?: number
           talent_id?: string
-          talent_net_earnings?: number | null
+          talent_payout_amount?: number | null
           total_client_price?: number | null
+          travel_coordinates_estimated?: boolean
+          travel_distance_km?: number | null
           travel_fee?: number | null
           updated_at?: string | null
+          vat_amount?: number | null
+          vat_rate_percent?: number
         }
         Relationships: [
           {
@@ -4252,7 +4300,7 @@ export type Database = {
         | "signed_by_venue"
         | "fully_signed"
         | "void"
-      equipment_responsibility: "talent" | "venue" | "shared"
+      equipment_responsibility: "talent" | "venue"
       events_status:
         | "draft"
         | "published"
@@ -4536,7 +4584,7 @@ export const Constants = {
         "fully_signed",
         "void",
       ],
-      equipment_responsibility: ["talent", "venue", "shared"],
+      equipment_responsibility: ["talent", "venue"],
       events_status: ["draft", "published", "booked", "cancelled", "completed"],
       events_type: [
         "wedding",
