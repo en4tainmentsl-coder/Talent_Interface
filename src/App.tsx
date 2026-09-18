@@ -46,18 +46,20 @@ export default function App() {
   };
 
   const fetchNotifications = async (userId: string) => {
-    try {
-      const { data, error } = await supabase
-        .from('notifications')
-        .select('*')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false })
-        .limit(20);
-      
-      if (data) setNotifications(data);
-    } catch (err) {
-      console.error('Error fetching notifications:', err);
+    const { data, error } = await supabase
+      .from('notifications')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('is_read', false)
+      .order('sent_at', { ascending: false })
+      .limit(20);
+
+    if (error) {
+      console.error('Error fetching notifications:', error);
+      return;
     }
+
+    setNotifications(data ?? []);
   };
 
   const subscribeToNotifications = (userId: string) => {
@@ -119,7 +121,7 @@ export default function App() {
       .eq('id', id);
     
     if (!error) {
-      setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n));
+      setNotifications(prev => prev.filter(n => n.id !== id));
     }
   };
 
@@ -132,11 +134,11 @@ export default function App() {
       .eq('is_read', false);
     
     if (!error) {
-      setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
+      setNotifications([]);
     }
   };
 
-  const unreadCount = notifications.filter(n => !n.is_read).length;
+  const unreadCount = notifications.length;
 
   if (!session) {
     return (
