@@ -29,6 +29,10 @@ export default function App() {
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [talentAvatarUrl, setTalentAvatarUrl] = useState<string | null>(null);
+  // Every signed-in user must have a profiles_users row with role 'talent'
+  // before any page renders. See ensureTalentAccount below.
+  const [accountStatus, setAccountStatus] = useState<'checking' | 'ready'>('checking');
+  const [accountError, setAccountError] = useState<string | null>(null);
 
   const fetchTalentAvatar = async (userId: string) => {
     try {
@@ -36,7 +40,7 @@ export default function App() {
         .from('profiles_talent')
         .select('profile_photo_url')
         .eq('user_id', userId)
-        .single();
+        .maybeSingle();
       if (data?.profile_photo_url) {
         setTalentAvatarUrl(data.profile_photo_url);
       }
@@ -97,9 +101,70 @@ export default function App() {
     return () => subscription?.unsubscribe();
   }, []);
 
-  // 2. Manage fetching data and subscription when user ID changes (or login happens)
+  // 2. Make sure the signed-in user has a talent account.
+  // profiles_users is created by the app on first sign-in (users_insert_own
+  // policy). A role chosen once is final, so an account that already holds
+  // another role is refused here and signed out.
+  const ROLE_CONFLICT_MESSAGE =
+    "This account is currently registered as another role, and can't be used for multiple roles. Please use a different Google account to sign up here";
+  const SETUP_FAILED_MESSAGE =
+    "We couldn't finish setting up your account. Please try signing in again.";
+
+  const rejectAccount = async (message: string) => {
+    setAccountError(message);
+    await supabase.auth.signOut();
+  };
+
+  const ensureTalentAccount = async (userId: string, email: string) => {
+    const readRole = async (): Promise<string | null> => {
+      const { data, error } = await supabase
+        .from('profiles_users')
+        .select('role')
+        .eq('id', userId)
+        .maybeSingle();
+      if (error) throw error;
+      return data?.role ?? null;
+    };
+
+    try {
+      let role = await readRole();
+
+      if (role === null) {
+        const { error: insertError } = await supabase
+          .from('profiles_users')
+          .insert({ id: userId, email, role: 'talent' });
+
+        if (insertError) {
+          // 23505 = duplicate. Either this check ran twice (row now exists),
+          // or the email already belongs to another account (still no row).
+          if (insertError.code !== '23505') throw insertError;
+          role = await readRole();
+        } else {
+          role = 'talent';
+        }
+      }
+
+      if (role === 'talent') {
+        setAccountStatus('ready');
+      } else {
+        await rejectAccount(ROLE_CONFLICT_MESSAGE);
+      }
+    } catch (err) {
+      console.error('Account setup failed:', err);
+      await rejectAccount(SETUP_FAILED_MESSAGE);
+    }
+  };
+
   useEffect(() => {
-    if (!session?.user?.id) {
+    const userId = session?.user?.id;
+    setAccountStatus('checking');
+    if (!userId) return;
+    ensureTalentAccount(userId, session?.user?.email ?? '');
+  }, [session?.user?.id]);
+
+  // 3. Manage fetching data and subscription once the account check has passed
+  useEffect(() => {
+    if (!session?.user?.id || accountStatus !== 'ready') {
       setNotifications([]);
       setTalentAvatarUrl(null);
       return;
@@ -112,7 +177,7 @@ export default function App() {
     return () => {
       unsubscribe();
     };
-  }, [session?.user?.id]);
+  }, [session?.user?.id, accountStatus]);
 
   const markAsRead = async (id: string) => {
     const { error } = await supabase
@@ -158,15 +223,20 @@ export default function App() {
             <h1 className="text-4xl font-black tracking-tight text-gray-900">En410</h1>
             <p className="text-gray-500 mt-2 font-medium">Find a gig for you.</p>
           </div>
+          {accountError && (
+            <p role="alert" className="text-sm text-red-700 bg-red-50 border border-red-100 rounded-2xl p-4">
+              {accountError}
+            </p>
+          )}
           <div className="space-y-4">
             <button 
-  onClick={() => supabase.auth.signInWithOAuth({ 
+  onClick={() => { setAccountError(null); supabase.auth.signInWithOAuth({ 
     provider: 'google',
     options: {
       scopes: 'https://www.googleapis.com/auth/calendar.events',
       redirectTo: window.location.origin + '/profile'
     }
-  })}
+  }); }}
   className="w-full py-4 bg-black text-white rounded-2xl font-bold text-lg hover:bg-gray-800 transition-all transform hover:scale-[1.02] active:scale-[0.98] shadow-xl"
 >
   Sign in with Google
@@ -174,6 +244,14 @@ export default function App() {
             <p className="text-xs text-gray-400">By signing in, you agree to our Terms of Service.</p>
           </div>
         </div>
+      </div>
+    );
+  }
+
+  if (accountStatus !== 'ready') {
+    return (
+      <div className="min-h-screen bg-[#f8f9fa] flex items-center justify-center p-4">
+        <p className="text-gray-500 font-medium">Setting up your account…</p>
       </div>
     );
   }
