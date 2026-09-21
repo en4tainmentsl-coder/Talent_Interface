@@ -3007,6 +3007,7 @@ export type Database = {
           approval_status: Database["public"]["Enums"]["approval_status"]
           base_latitude: number | null
           base_longitude: number | null
+          base_town_id: number | null
           bio: string | null
           cover_photo_public_id: string | null
           cover_photo_url: string | null
@@ -3053,6 +3054,7 @@ export type Database = {
           approval_status?: Database["public"]["Enums"]["approval_status"]
           base_latitude?: number | null
           base_longitude?: number | null
+          base_town_id?: number | null
           bio?: string | null
           cover_photo_public_id?: string | null
           cover_photo_url?: string | null
@@ -3099,6 +3101,7 @@ export type Database = {
           approval_status?: Database["public"]["Enums"]["approval_status"]
           base_latitude?: number | null
           base_longitude?: number | null
+          base_town_id?: number | null
           bio?: string | null
           cover_photo_public_id?: string | null
           cover_photo_url?: string | null
@@ -3143,6 +3146,13 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "profiles_talent_base_town_id_fkey"
+            columns: ["base_town_id"]
+            isOneToOne: false
+            referencedRelation: "towns"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "profiles_talent_primary_genre_id_fkey"
             columns: ["primary_genre_id"]
             isOneToOne: false
@@ -3179,7 +3189,7 @@ export type Database = {
           email: string
           id: string
           last_login_at: string | null
-          phone: string
+          phone: string | null
           role: string
           status: Database["public"]["Enums"]["user_status"]
         }
@@ -3189,7 +3199,7 @@ export type Database = {
           email?: string
           id: string
           last_login_at?: string | null
-          phone: string
+          phone?: string | null
           role?: string
           status?: Database["public"]["Enums"]["user_status"]
         }
@@ -3199,7 +3209,7 @@ export type Database = {
           email?: string
           id?: string
           last_login_at?: string | null
-          phone?: string
+          phone?: string | null
           role?: string
           status?: Database["public"]["Enums"]["user_status"]
         }
@@ -4157,6 +4167,39 @@ export type Database = {
           },
         ]
       }
+      towns: {
+        Row: {
+          district: string
+          ds_division: string | null
+          id: number
+          label: string
+          latitude: number
+          longitude: number
+          name: string
+          rank: number
+        }
+        Insert: {
+          district: string
+          ds_division?: string | null
+          id: number
+          label: string
+          latitude: number
+          longitude: number
+          name: string
+          rank?: number
+        }
+        Update: {
+          district?: string
+          ds_division?: string | null
+          id?: number
+          label?: string
+          latitude?: number
+          longitude?: number
+          name?: string
+          rank?: number
+        }
+        Relationships: []
+      }
       venue_payment_accounts: {
         Row: {
           account_purpose: Database["public"]["Enums"]["venue_account_purpose"]
@@ -4291,6 +4334,13 @@ export type Database = {
       }
       get_my_role: { Args: never; Returns: string }
       get_nic_hmac_key: { Args: never; Returns: string }
+      get_quote_request_client_names: {
+        Args: never
+        Returns: {
+          full_name: string
+          quote_request_id: string
+        }[]
+      }
       get_webhook_secret: { Args: never; Returns: string }
       is_18_or_over: { Args: { dob: string }; Returns: boolean }
       is_talent_available: {
@@ -4309,6 +4359,10 @@ export type Database = {
       recompute_talent_rating_stats: {
         Args: { p_talent_id?: string }
         Returns: number
+      }
+      venue_is_owned_by_caller: {
+        Args: { p_venue_id: string }
+        Returns: boolean
       }
     }
     Enums: {
