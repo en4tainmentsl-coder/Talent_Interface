@@ -12,6 +12,7 @@ import { ARTIST_AGREEMENT } from '../constants';
 import { motion, AnimatePresence } from 'motion/react';
 import { uploadToCloudinary } from '../utils/cloudinaryUpload';
 import { uploadToR2 } from '../utils/uploadToR2';
+import TownAutocomplete from './TownAutocomplete';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Field mapping notes (verified against information_schema)
@@ -85,6 +86,10 @@ const profileSchema = z.object({
   live_link:           z.string().url('Invalid URL').or(z.string().length(0)),
   price_per_session:   z.number().min(0),
   primary_location:    z.string().min(2, 'Primary location is required'),
+  // Chosen from TownAutocomplete. base_latitude / base_longitude are derived from
+  // it by a database trigger (migration 20260921100000) and never sent from here.
+  base_town_id:        z.number({ error: 'Choose your town from the list' }).int().nullable()
+                         .refine((v) => v !== null, 'Choose your town from the list'),
   secondary_locations: z.array(z.string()).length(4),
   languages:           z.string().min(2, 'Enter at least one language'),
   performance_type:    z.enum(['solo', 'duo', '3-piece', 'full band', 'dj']),
@@ -122,15 +127,23 @@ export default function ProfileEditor() {
   const [uploadingTarget, setUploadingTarget] = useState<string | null>(null);
   const agreementRef = useRef<HTMLDivElement>(null);
 
-  const { register, handleSubmit, reset, setValue, setError, formState: { errors } } =
+  const { register, handleSubmit, reset, setValue, setError, watch, formState: { errors } } =
     useForm<ProfileFormValues>({
       resolver: zodResolver(profileSchema),
       defaultValues: {
+        base_town_id: null,
         secondary_locations: ['', '', '', ''],
         genre_ids: ['', '', ''],
         languages: '',
       },
     });
+
+  // primary_location and base_town_id are driven by TownAutocomplete through
+  // setValue rather than a native input, so register them explicitly.
+  useEffect(() => {
+    register('primary_location');
+    register('base_town_id');
+  }, [register]);
 
   useEffect(() => {
     async function getInitialData() {
@@ -185,6 +198,7 @@ export default function ProfileEditor() {
             live_link:         p.url_live_performace_video ?? '',
             price_per_session: Number(p.pricing_per_session ?? 0),
             primary_location:  p.primary_location ?? '',
+            base_town_id:      p.base_town_id ?? null,
             secondary_locations: [
               p.optional_location_1 ?? '',
               p.optional_location_2 ?? '',
@@ -253,6 +267,7 @@ export default function ProfileEditor() {
         url_live_performace_video: v.live_link || null,
         pricing_per_session:       v.price_per_session,
         primary_location:          v.primary_location,
+        base_town_id:              v.base_town_id,
         optional_location_1:       v.secondary_locations[0] || null,
         optional_location_2:       v.secondary_locations[1] || null,
         optional_location_3:       v.secondary_locations[2] || null,
@@ -696,8 +711,18 @@ export default function ProfileEditor() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">
               <label className="text-sm font-medium">Primary Location</label>
-              <input {...register('primary_location')} className="w-full p-3 rounded-xl border focus:ring-2 focus:ring-emerald-500 outline-none" />
-              {errors.primary_location && <p className="text-red-500 text-xs">{errors.primary_location.message}</p>}
+              <TownAutocomplete
+                value={watch('primary_location') ?? ''}
+                townId={watch('base_town_id') ?? null}
+                invalid={!!(errors.base_town_id || errors.primary_location)}
+                onChange={(pick, text) => {
+                  setValue('primary_location', pick ? pick.label : text, { shouldDirty: true });
+                  setValue('base_town_id', pick ? pick.id : null, { shouldDirty: true, shouldValidate: !!pick });
+                }}
+              />
+              {errors.base_town_id
+                ? <p className="text-red-500 text-xs">{errors.base_town_id.message}</p>
+                : errors.primary_location && <p className="text-red-500 text-xs">{errors.primary_location.message}</p>}
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium">Other Locations Willing to Travel</label>
