@@ -13,6 +13,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { uploadToCloudinary } from '../utils/cloudinaryUpload';
 import { uploadToR2 } from '../utils/uploadToR2';
 import TownAutocomplete from './TownAutocomplete';
+import PriceInput from './PriceInput';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Field mapping notes (verified against information_schema)
@@ -84,7 +85,14 @@ const profileSchema = z.object({
   mobile:              z.string().min(8, 'Mobile number is required'),
   trailer_link:        z.string().url('Invalid URL').or(z.string().length(0)),
   live_link:           z.string().url('Invalid URL').or(z.string().length(0)),
-  price_per_session:   z.number().min(0),
+  // Whole rupees, 1 to 10,000,000 - matches the DB constraint
+  // profiles_talent_pricing_range. Required: a rate must be entered (2026-09-21).
+  // Previously min(0), which let 0 through to be rejected by the DB with 23514.
+  price_per_session:   z.number({ error: 'Enter your starting rate' }).int()
+                         .min(1, 'Enter your starting rate')
+                         .max(10000000, 'The maximum rate is 10,000,000')
+                         .nullable()
+                         .refine((v) => v !== null, 'Enter your starting rate'),
   primary_location:    z.string().min(2, 'Primary location is required'),
   // Chosen from TownAutocomplete. base_latitude / base_longitude are derived from
   // it by a database trigger (migration 20260921100000) and never sent from here.
@@ -132,6 +140,7 @@ export default function ProfileEditor() {
       resolver: zodResolver(profileSchema),
       defaultValues: {
         base_town_id: null,
+        price_per_session: null,
         secondary_locations: ['', '', '', ''],
         genre_ids: ['', '', ''],
         languages: '',
@@ -143,6 +152,7 @@ export default function ProfileEditor() {
   useEffect(() => {
     register('primary_location');
     register('base_town_id');
+    register('price_per_session');
   }, [register]);
 
   useEffect(() => {
@@ -196,7 +206,9 @@ export default function ProfileEditor() {
             mobile:            p.mobile ?? '',
             trailer_link:      p.url_trailer_video ?? '',
             live_link:         p.url_live_performace_video ?? '',
-            price_per_session: Number(p.pricing_per_session ?? 0),
+            price_per_session: p.pricing_per_session != null
+              ? Math.round(Number(p.pricing_per_session))
+              : null,
             primary_location:  p.primary_location ?? '',
             base_town_id:      p.base_town_id ?? null,
             secondary_locations: [
@@ -675,7 +687,14 @@ export default function ProfileEditor() {
               Price per Session
               <InfoTooltip content="Your standard rate for a single performance. You can adjust this per booking when submitting a quotation." />
             </label>
-            <input type="number" step="0.01" {...register('price_per_session', { valueAsNumber: true })} className="w-full p-3 rounded-xl border focus:ring-2 focus:ring-emerald-500 outline-none" />
+            <PriceInput
+              value={watch('price_per_session') ?? null}
+              invalid={!!errors.price_per_session}
+              onChange={(n) =>
+                setValue('price_per_session', n, { shouldDirty: true, shouldValidate: !!errors.price_per_session })
+              }
+            />
+            {errors.price_per_session && <p className="text-red-500 text-xs">{errors.price_per_session.message}</p>}
           </div>
         </section>
 
