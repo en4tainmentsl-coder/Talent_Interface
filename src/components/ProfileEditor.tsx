@@ -41,6 +41,16 @@ import PriceInput from './PriceInput';
 const FEATURE_SLOTS = [0, 1, 2];
 const FEATURE_MEDIA_TYPE = 'profile_photo';
 
+// The latest date of birth that is still 18 or over today, as YYYY-MM-DD.
+// Built from local date parts rather than toISOString(), which would shift the
+// boundary by a day for anyone in Sri Lanka (UTC+5:30) near midnight.
+const eighteenYearsAgo = (): string => {
+  const d = new Date();
+  d.setFullYear(d.getFullYear() - 18);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
+
 interface GenreRow { id: string; genre_name: string }
 
 interface FeaturePhoto {
@@ -81,6 +91,12 @@ function InfoTooltip({ content }: { content: string }) {
 const profileSchema = z.object({
   stage_name:          z.string().min(2, 'Stage name is required'),
   full_name:           z.string().min(2, 'Full name is required'),
+  // Self-declared. The 18+ rule is enforced in the database at submission too
+  // (migration 20260921210300) - a form check alone is advisory, since PostgREST
+  // is reachable directly with any signed-in session.
+  date_of_birth:       z.string().min(1, 'Date of birth is required')
+                         .refine((v) => v <= eighteenYearsAgo(),
+                                 'You must be 18 or over to be listed'),
   email:               z.string().email('Invalid email'),
   mobile:              z.string().min(8, 'Mobile number is required'),
   trailer_link:        z.string().url('Invalid URL').or(z.string().length(0)),
@@ -206,6 +222,7 @@ export default function ProfileEditor() {
           reset({
             stage_name:        p.stage_name ?? '',
             full_name:         p.full_name ?? '',
+            date_of_birth:     p.date_of_birth ?? '',
             email:             p.email ?? '',
             mobile:            p.mobile ?? '',
             trailer_link:      p.url_trailer_video ?? '',
@@ -278,6 +295,7 @@ export default function ProfileEditor() {
         user_id:                   user.id,
         stage_name:                v.stage_name,
         full_name:                 v.full_name,
+        date_of_birth:             v.date_of_birth,
         email:                     v.email,
         mobile:                    v.mobile,
         url_trailer_video:         v.trailer_link || null,
@@ -687,6 +705,17 @@ export default function ProfileEditor() {
             <label className="text-sm font-medium">Mobile Number</label>
             <input {...register('mobile')} className="w-full p-3 rounded-xl border focus:ring-2 focus:ring-emerald-500 outline-none" />
             {errors.mobile && <p className="text-red-500 text-xs">{errors.mobile.message}</p>}
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Date of Birth</label>
+            <input
+              type="date"
+              max={eighteenYearsAgo()}
+              {...register('date_of_birth')}
+              className="w-full p-3 rounded-xl border focus:ring-2 focus:ring-emerald-500 outline-none"
+            />
+            <p className="text-xs text-gray-500">You must be 18 or over to be listed.</p>
+            {errors.date_of_birth && <p className="text-red-500 text-xs">{errors.date_of_birth.message}</p>}
           </div>
           <div className="space-y-2">
             <label className="text-sm font-medium flex items-center">
