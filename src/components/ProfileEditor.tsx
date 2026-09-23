@@ -111,6 +111,10 @@ const profileSchema = z.object({
   // Optional on load: the raw NIC is never returned from the server, so the
   // field starts empty even when one is already on file.
   national_id_number: z.string().min(5, 'Required').or(z.string().length(0)),
+  // Shown as the description on artist cards (Home, Artists, ArtistDetail in
+  // Audience-Interface). Required before a profile can be submitted for review.
+  short_bio: z.string().min(20, 'Short bio should be at least 20 characters')
+               .max(200, 'Short bio should be 200 characters or fewer'),
   bio: z.string().min(10, 'Bio should be at least 10 characters'),
 });
 
@@ -226,6 +230,7 @@ export default function ProfileEditor() {
               p.tertiary_genre_id ?? '',
             ],
             national_id_number: '',
+            short_bio: p.short_bio ?? '',
             bio: p.bio ?? '',
           });
 
@@ -290,6 +295,7 @@ export default function ProfileEditor() {
         primary_genre_id:          v.genre_ids[0],
         secondary_genre_id:        v.genre_ids[1] || null,
         tertiary_genre_id:         v.genre_ids[2] || null,
+        short_bio:                 v.short_bio,
         bio:                       v.bio,
         updated_at:                new Date().toISOString(),
       };
@@ -800,6 +806,23 @@ export default function ProfileEditor() {
               <label className="text-sm font-medium">Languages</label>
               <input {...register('languages')} className="w-full p-3 rounded-xl border outline-none" placeholder="e.g. English, Sinhala, Tamil" />
               {errors.languages && <p className="text-red-500 text-xs">{errors.languages.message}</p>}
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Short Bio</label>
+            <textarea
+              {...register('short_bio')}
+              rows={2}
+              maxLength={200}
+              className="w-full p-3 rounded-xl border outline-none"
+              placeholder="One or two lines shown on your artist card"
+            />
+            <div className="flex justify-between text-xs">
+              <span className="text-red-500">{errors.short_bio?.message ?? ''}</span>
+              <span className={cn('text-gray-400', (watch('short_bio')?.length ?? 0) > 180 && 'text-amber-600')}>
+                {watch('short_bio')?.length ?? 0}/200
+              </span>
             </div>
           </div>
 
