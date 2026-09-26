@@ -22,6 +22,7 @@ import Agreement from './components/Agreement';
 import Contracts from './components/Contracts';
 import InstallPrompt from './components/InstallPrompt';
 import NotificationsPanel from './components/NotificationsPanel';
+import Settings from './components/Settings';
 
 export default function App() {
   const [session, setSession] = useState<any>(null);
@@ -343,7 +344,7 @@ export default function App() {
                 )}
               </button>
               <div className="h-8 w-[1px] bg-gray-200 mx-2"></div>
-              <Link to="/profile" className="flex items-center gap-2 group">
+              <Link to="/settings" className="flex items-center gap-2 group">
                 <span className="text-sm font-bold group-hover:text-emerald-600 transition-colors">Settings</span>
               </Link>
             </div>
@@ -354,6 +355,7 @@ export default function App() {
                 <Routes>
                   <Route path="/" element={<Dashboard />} />
                   <Route path="/profile" element={<ProfileEditor />} />
+                  <Route path="/settings" element={<Settings />} />
                   <Route path="/bookings" element={<BookingManager />} />
                   <Route path="/contracts" element={<Contracts />} />
                   <Route path="/agreement" element={<Agreement />} />
