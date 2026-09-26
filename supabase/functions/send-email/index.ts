@@ -101,20 +101,60 @@ const TEMPLATES: Record<string, (d: Record<string, unknown>, to: string | null) 
     }
   },
 
-  talent_rejected: (d, to) => {
+    talent_rejected: (d, to) => {
     const name   = esc(d.stage_name)
-    const reason = esc(d.reason)
+    const reason = String(d.reason ?? '')
+    const note   = d.note ? esc(d.note) : null
+
+    // The reviewer picks an enum; the talent reads a sentence. Never show the
+    // label itself — "documents_unclear" means nothing to the person receiving it.
+    const SENTENCES: Record<string, string> = {
+      documents_unclear:
+        `We couldn't read your NIC images clearly enough to verify them. This usually happens when the photo is blurry, too dark, or part of the card is cut off. Please upload both sides again, with the whole card visible and in good light.`,
+      identity_mismatch:
+        `The details on your profile don't match the NIC you uploaded. This is often a typo in a name or date of birth rather than anything serious. Please check both and correct whichever is wrong.`,
+      incomplete_profile:
+        `We need a bit more detail on your profile before we can list you.`,
+      unsuitable_content:
+        `Some of the photos, videos or text on your profile don't meet our listing guidelines. Please review and replace anything that isn't suitable for a public booking profile.`,
+      duplicate_account:
+        `It looks like you already have a profile with us. We don't list the same performer twice.`,
+      other: '',
+    }
+
+    const sentence = SENTENCES[reason] ?? ''
+    // A duplicate should get back into their existing account, not build a second one.
+    const isDuplicate = reason === 'duplicate_account'
+
+    const parts: string[] = [`<p>Hi ${name},</p>`]
+    parts.push(`<p>We reviewed your profile and couldn't approve it yet.</p>`)
+    if (sentence) parts.push(`<p>${esc(sentence)}</p>`)
+    if (note) {
+      parts.push(`<blockquote style="background:#f0f4f9;border-radius:4px;margin:0 0 16px 0;padding:16px">${note}</blockquote>`)
+    }
+
+    if (isDuplicate) {
+      parts.push(`<p><strong>Please reply to this email</strong> and we'll help you get back into your original profile.</p>`)
+    } else {
+      parts.push(`<p>You can update your profile and submit it again — there's no limit on resubmissions.</p>`)
+      parts.push(`<p><a href="https://app.en4tainment.com" style="display:inline-block;padding:11px 24px;background:#171717;color:#fff;text-decoration:none;border-radius:8px">Update my profile</a></p>`)
+      parts.push(`<p style="font-size:14px;color:#525252">If this doesn't look right, reply to this email and we'll take another look.</p>`)
+    }
+
+    const textBody = [
+      `Hi ${name}, we reviewed your profile and couldn't approve it yet.`,
+      sentence,
+      note ? String(d.note) : '',
+      isDuplicate
+        ? 'Please reply to this email and we will help you get back into your original profile.'
+        : 'You can update your profile and submit it again at https://app.en4tainment.com',
+    ].filter(Boolean).join(' ')
+
     return {
       to: to!,
       subject: 'About your En4tainment profile',
-      text: `Hi ${name}, we could not approve your profile yet. Reason: ${reason}. You can update it and resubmit at https://app.en4tainment.com`,
-      html: layout('We could not approve your profile yet', `
-        <p>Hi ${name},</p>
-        <p>We reviewed your profile and could not approve it yet. Here is why:</p>
-        <blockquote style="background:#f0f4f9;border-radius:4px;margin:0 0 16px 0;padding:16px">${reason}</blockquote>
-        <p>You can update your profile and submit it again — there is no limit on resubmissions.</p>
-        <p><a href="https://app.en4tainment.com" style="display:inline-block;padding:11px 24px;background:#171717;color:#fff;text-decoration:none;border-radius:8px">Update my profile</a></p>
-        <p style="font-size:14px;color:#525252">If this does not look right, reply to this email and we will take another look.</p>`),
+      text: textBody,
+      html: layout(`We couldn't approve your profile yet`, parts.join('\n')),
     }
   },
 
@@ -203,10 +243,18 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-        if (template === 'talent_rejected') {
-      const r = (data ?? {})?.reason
-      if (typeof r !== 'string' || r.trim().length === 0) {
-        return json({ error: 'talent_rejected requires a non-empty "reason"' }, 400)
+    if (template === 'talent_rejected') {
+      const d = (data ?? {}) as Record<string, unknown>
+      const r = d.reason
+      const VALID = ['documents_unclear', 'identity_mismatch', 'incomplete_profile',
+                     'unsuitable_content', 'duplicate_account', 'other']
+      if (typeof r !== 'string' || !VALID.includes(r)) {
+        return json({ error: 'talent_rejected requires a valid "reason"' }, 400)
+      }
+      // These two carry no usable detail on their own, matching the DB constraint.
+      if ((r === 'other' || r === 'incomplete_profile') &&
+          (typeof d.note !== 'string' || d.note.trim().length === 0)) {
+        return json({ error: `reason "${r}" requires a "note"` }, 400)
       }
     }
 
