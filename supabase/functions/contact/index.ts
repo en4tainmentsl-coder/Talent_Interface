@@ -54,12 +54,17 @@ function str(v: unknown, max: number): string {
   return typeof v === 'string' ? v.trim().slice(0, max) : ''
 }
 
-// Cloudflare and the Supabase gateway both prepend; the first entry is the client.
+// submitter_ip is inet. A value Postgres cannot parse fails the INSERT and
+// loses the enquiry, so anything unparseable becomes null — the message
+// matters more than the rate limit. x-forwarded-for is client-supplied:
+// treat it as a nuisance filter, not as identity.
 function clientIp(req: Request): string | null {
-  const xff = req.headers.get('x-forwarded-for')
-  if (!xff) return null
-  const first = xff.split(',')[0].trim()
-  return first.length > 0 && first.length <= 45 ? first : null
+  const first = (req.headers.get('x-forwarded-for') ?? '').split(',')[0].trim()
+  if (!first || first.length > 45) return null
+  const v4 = /^\d{1,3}(\.\d{1,3}){3}$/
+  if (v4.test(first)) return first.split('.').every(o => Number(o) <= 255) ? first : null
+  if (/^[0-9a-fA-F:]+$/.test(first) && first.includes(':')) return first
+  return null
 }
 
 Deno.serve(async (req: Request) => {
