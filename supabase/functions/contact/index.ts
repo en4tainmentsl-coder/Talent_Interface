@@ -8,11 +8,12 @@
 // because at that point their message genuinely is safe. Delivery is our
 // problem, not theirs.
 //
-// verify_jwt = false, DELIBERATELY, and this is the only function in the
-// project set that way. A stranger has no JWT; the only credential available to
-// them is the publishable key in the frontend bundle, which is public. Requiring
-// it would buy nothing and would break the form if the configured key format
-// changes. Everything in the request is treated as untrusted.
+// verify_jwt = true, matching every other function in the project. An
+// anonymous visitor still reaches this: supabase.functions.invoke attaches
+// the publishable key automatically, and that key is public by design. The
+// alternative, verify_jwt = false, would mean remembering --no-verify-jwt on
+// every future deploy or silently reverting to the house default. Nothing in
+// the request is trusted regardless; the guards below do the real work.
 //
 // TWO LIMITS THAT BEHAVE DIFFERENTLY — this asymmetry is the point:
 //   Per IP   — abuse. REJECTED, nothing stored.
