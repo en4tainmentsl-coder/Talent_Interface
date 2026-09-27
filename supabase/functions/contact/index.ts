@@ -8,11 +8,12 @@
 // because at that point their message genuinely is safe. Delivery is our
 // problem, not theirs.
 //
-// verify_jwt = false, DELIBERATELY, and this is the only function in the
-// project set that way. A stranger has no JWT; the only credential available to
-// them is the publishable key in the frontend bundle, which is public. Requiring
-// it would buy nothing and would break the form if the configured key format
-// changes. Everything in the request is treated as untrusted.
+// verify_jwt = true, matching every other function in the project. An
+// anonymous visitor still reaches this: supabase.functions.invoke attaches
+// the publishable key automatically, and that key is public by design. The
+// alternative, verify_jwt = false, would mean remembering --no-verify-jwt on
+// every future deploy or silently reverting to the house default. Nothing in
+// the request is trusted regardless; the guards below do the real work.
 //
 // TWO LIMITS THAT BEHAVE DIFFERENTLY — this asymmetry is the point:
 //   Per IP   — abuse. REJECTED, nothing stored.
@@ -54,12 +55,17 @@ function str(v: unknown, max: number): string {
   return typeof v === 'string' ? v.trim().slice(0, max) : ''
 }
 
-// Cloudflare and the Supabase gateway both prepend; the first entry is the client.
+// submitter_ip is inet. A value Postgres cannot parse fails the INSERT and
+// loses the enquiry, so anything unparseable becomes null — the message
+// matters more than the rate limit. x-forwarded-for is client-supplied:
+// treat it as a nuisance filter, not as identity.
 function clientIp(req: Request): string | null {
-  const xff = req.headers.get('x-forwarded-for')
-  if (!xff) return null
-  const first = xff.split(',')[0].trim()
-  return first.length > 0 && first.length <= 45 ? first : null
+  const first = (req.headers.get('x-forwarded-for') ?? '').split(',')[0].trim()
+  if (!first || first.length > 45) return null
+  const v4 = /^\d{1,3}(\.\d{1,3}){3}$/
+  if (v4.test(first)) return first.split('.').every(o => Number(o) <= 255) ? first : null
+  if (/^[0-9a-fA-F:]+$/.test(first) && first.includes(':')) return first
+  return null
 }
 
 Deno.serve(async (req: Request) => {
