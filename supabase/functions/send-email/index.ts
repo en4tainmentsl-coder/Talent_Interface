@@ -84,7 +84,12 @@ function layout(heading: string, bodyHtml: string): string {
     </td></tr></table></td></tr></table></body></html>`
 }
 
-type Built = { to: string; subject: string; html: string; text: string }
+// replyTo is optional; templates that omit it fall back to the platform REPLY_TO.
+// A contact enquiry must reply to the person who wrote in, not to support@.
+type Built = { to: string; subject: string; html: string; text: string; replyTo?: string }
+
+// Templates that fix their own recipient and ignore any supplied "to".
+const INTERNAL_TEMPLATES = new Set(['deletion_requested_admin', 'contact_received'])
 
 const TEMPLATES: Record<string, (d: Record<string, unknown>, to: string | null) => Built> = {
 
@@ -191,6 +196,35 @@ const TEMPLATES: Record<string, (d: Record<string, unknown>, to: string | null) 
           <strong>Due by ${esc(due)}</strong> — 14 calendar days from the request, which is our own commitment and stricter than the PDPA s.17 ceiling.</p>`),
     }
   },
+  
+  // Internal: recipient is fixed to CONTACT_TO, so a caller cannot redirect
+  // enquiries elsewhere. replyTo is the submitter, so replying opens a
+  // conversation with them rather than with support@.
+  contact_received: (d) => {
+    const name    = esc(d.name)
+    const email   = String(d.email ?? '')
+    const message = String(d.message ?? '')
+    const safeReply = EMAIL_RE.test(email) ? email : undefined
+
+    return {
+      to: CONTACT_TO,
+      replyTo: safeReply,
+      subject: `Contact form: ${String(d.name ?? 'enquiry').slice(0, 60)}`,
+      text: [
+        `New contact form enquiry.`,
+        `From: ${String(d.name ?? '')} <${email}>`,
+        ``,
+        message,
+        ``,
+        `Reply directly to this email to answer them.`,
+      ].join('\n'),
+      html: layout('New contact enquiry', `
+        <p><strong>${name}</strong><br>
+        <a href="mailto:${esc(email)}">${esc(email)}</a></p>
+        <div style="background:#f0f4f9;border-radius:4px;padding:16px;white-space:pre-wrap">${esc(message)}</div>
+        <p style="font-size:14px;color:#525252">Reply to this email to answer them directly.</p>`),
+    }
+  },
 }
 
 Deno.serve(async (req: Request) => {
@@ -236,7 +270,7 @@ Deno.serve(async (req: Request) => {
     }
 
     // Internal templates fix their own recipient and ignore any supplied one.
-    const internal = template === 'deletion_requested_admin'
+    const internal = INTERNAL_TEMPLATES.has(template)
     if (!internal) {
       if (typeof to !== 'string' || !EMAIL_RE.test(to)) {
         return json({ error: 'A valid "to" address is required' }, 400)
@@ -269,7 +303,7 @@ Deno.serve(async (req: Request) => {
       body: JSON.stringify({
         from:     FROM,
         to:       [built.to],
-        reply_to: REPLY_TO,
+        reply_to: built.replyTo ?? REPLY_TO,
         subject:  built.subject,
         html:     built.html,
         text:     built.text,
