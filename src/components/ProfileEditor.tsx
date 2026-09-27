@@ -13,7 +13,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { uploadToCloudinary } from '../utils/cloudinaryUpload';
 import { uploadToR2 } from '../utils/uploadToR2';
 import TownAutocomplete from './TownAutocomplete';
-import PriceInput from './PriceInput';
+import TalentRates, { type TalentRatesHandle } from './TalentRates';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Field mapping notes (verified against information_schema)
@@ -101,14 +101,11 @@ const profileSchema = z.object({
   mobile:              z.string().min(8, 'Mobile number is required'),
   trailer_link:        z.string().url('Invalid URL').or(z.string().length(0)),
   live_link:           z.string().url('Invalid URL').or(z.string().length(0)),
-  // Whole rupees, 1 to 10,000,000 - matches the DB constraint
-  // profiles_talent_pricing_range. Required: a rate must be entered (2026-09-21).
-  // Previously min(0), which let 0 through to be rejected by the DB with 23514.
-  price_per_session:   z.number({ error: 'Enter your starting rate' }).int()
-                         .min(1, 'Enter your starting rate')
-                         .max(10000000, 'The maximum rate is 10,000,000')
-                         .nullable()
-                         .refine((v) => v !== null, 'Enter your starting rate'),
+  // Superseded by talent_rates (D-038): rates are now per event category and
+  // live in their own table. Kept here only so the existing value round-trips
+  // until profiles_talent.pricing_per_session is dropped. No longer required —
+  // the submission gate now checks "at least one category rate" instead.
+  price_per_session:   z.number().int().nullable(),
   primary_location:    z.string().min(2, 'Primary location is required'),
   // Chosen from TownAutocomplete. base_latitude / base_longitude are derived from
   // it by a database trigger (migration 20260921100000) and never sent from here.
@@ -151,6 +148,9 @@ export default function ProfileEditor() {
   const [hasReadToBottom, setHasReadToBottom] = useState(false);
   const [pendingValues, setPendingValues]     = useState<ProfileFormValues | null>(null);
   const [approvalStatus, setApprovalStatus]   = useState<string | null>(null);
+  const ratesRef = useRef<TalentRatesHandle>(null);
+  const [submitting, setSubmitting]   = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [isEditing, setIsEditing]             = useState(false);
   const [uploadingTarget, setUploadingTarget] = useState<string | null>(null);
   const agreementRef = useRef<HTMLDivElement>(null);
@@ -347,13 +347,60 @@ export default function ProfileEditor() {
         setValue('national_id_number', '');
       }
 
-      alert('Profile saved successfully!');
+      // Rates are a separate table with its own RLS and its own cooldown, so
+      // they save after the profile has persisted. A rejected rate change
+      // reports itself without discarding everything else that just saved.
+      const rateError = await ratesRef.current?.save();
+      if (rateError) {
+        alert(`Profile saved, but some rates were not: ${rateError}`);
+      } else {
+        alert('Profile saved successfully!');
+      }
       setIsEditing(false);
     } catch (error: any) {
       alert(error.message ?? 'Could not save profile');
     } finally {
       setSaving(false);
       setPendingValues(null);
+    }
+  };
+
+    // Nothing in the app could previously set pending_approval, so the four
+  // database gates — completeness, talent DOB, client DOB, and at least one
+  // category rate — guarded a transition nothing could trigger.
+  //
+  // This deliberately does NOT pre-validate. The completeness gate alone checks
+  // sixteen fields across three tables; replicating that here would duplicate
+  // logic that then drifts. The gates' messages are written for a talent and
+  // name exactly what is missing, so we attempt the transition and show what
+  // comes back.
+  const submitForApproval = async () => {
+    if (!talentId) return;
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      // enforce_talent_trust_fields SILENTLY COERCES a disallowed transition
+      // back to the old value rather than raising, so a successful response
+      // does not mean the status changed. Read back what was actually stored.
+      const { data, error } = await supabase
+        .from('profiles_talent')
+        .update({ approval_status: 'pending_approval' })
+        .eq('id', talentId)
+        .select('approval_status')
+        .single();
+
+      if (error) { setSubmitError(error.message); return; }
+
+      if (data?.approval_status !== 'pending_approval') {
+        setSubmitError('Your profile could not be submitted. Save your changes first, then try again.');
+        return;
+      }
+
+      setApprovalStatus('pending_approval');
+    } catch (e: any) {
+      setSubmitError(e?.message ?? 'Could not submit your profile for approval.');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -717,20 +764,14 @@ export default function ProfileEditor() {
             <p className="text-xs text-gray-500">You must be 18 or over to be listed.</p>
             {errors.date_of_birth && <p className="text-red-500 text-xs">{errors.date_of_birth.message}</p>}
           </div>
-          <div className="space-y-2">
-            <label className="text-sm font-medium flex items-center">
-              Price per Session
-              <InfoTooltip content="Your standard rate for a single performance. You can adjust this per booking when submitting a quotation." />
-            </label>
-            <PriceInput
-              value={watch('price_per_session') ?? null}
-              invalid={!!errors.price_per_session}
-              onChange={(n) =>
-                setValue('price_per_session', n, { shouldDirty: true, shouldValidate: !!errors.price_per_session })
-              }
-            />
-            {errors.price_per_session && <p className="text-red-500 text-xs">{errors.price_per_session.message}</p>}
-          </div>
+        </section>
+
+        {/* Rates are per event category (D-038) and live in talent_rates, not
+            profiles_talent. They save as their own step, so a 30-day cooldown on
+            one category cannot block an unrelated profile edit. */}
+        <section className="space-y-4">
+          <h2 className="text-xl font-semibold border-b pb-2">Your Rates</h2>
+          <TalentRates ref={ratesRef} talentId={talentId} />
         </section>
 
         {/* Social Links */}
@@ -860,7 +901,33 @@ export default function ProfileEditor() {
             <textarea {...register('bio')} rows={4} className="w-full p-3 rounded-xl border outline-none" placeholder="Tell us about your musical journey..." />
             {errors.bio && <p className="text-red-500 text-xs">{errors.bio.message}</p>}
           </div>
-        </section>
+                </section>
+
+        {/* Nothing in the app could previously set pending_approval, so the four
+            database gates guarded a transition nothing could trigger. This is
+            the handle on that door. */}
+        {(approvalStatus === 'draft' || approvalStatus === 'rejected') && (
+          <section className="space-y-3 border-t pt-6">
+            <h2 className="text-xl font-semibold">Ready to be listed?</h2>
+            <p className="text-sm text-gray-600">
+              Save your profile first. Submitting sends it to our team for review —
+              you won't be able to edit it while it's being reviewed.
+            </p>
+            {submitError && (
+              <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-4 text-sm" role="alert">
+                {submitError}
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={submitForApproval}
+              disabled={submitting}
+              className="w-full sm:w-auto px-6 py-3 rounded-xl bg-emerald-600 text-white font-semibold disabled:opacity-50"
+            >
+              {submitting ? 'Submitting…' : 'Submit for approval'}
+            </button>
+          </section>
+        )}
       </form>
 
       {/* Agreement Modal */}
