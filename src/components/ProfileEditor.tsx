@@ -22,7 +22,6 @@ import TalentRates, { type TalentRatesHandle } from './TalentRates';
 //   ─────────────────────────────────────────────────────────────────────────
 //   trailer_link          → url_trailer_video
 //   live_link             → url_live_performace_video   (typo is in the DB)
-//   price_per_session     → pricing_per_session
 //   secondary_locations[] → optional_location_1 .. _4
 //   genre_ids[]           → primary_/secondary_/tertiary_genre_id  (uuid FKs)
 //   performance_type      → type_of_performer   (enum: solo|duo|3-piece|full band|dj)
@@ -101,11 +100,6 @@ const profileSchema = z.object({
   mobile:              z.string().min(8, 'Mobile number is required'),
   trailer_link:        z.string().url('Invalid URL').or(z.string().length(0)),
   live_link:           z.string().url('Invalid URL').or(z.string().length(0)),
-  // Superseded by talent_rates (D-038): rates are now per event category and
-  // live in their own table. Kept here only so the existing value round-trips
-  // until profiles_talent.pricing_per_session is dropped. No longer required —
-  // the submission gate now checks "at least one category rate" instead.
-  price_per_session:   z.number().int().nullable(),
   primary_location:    z.string().min(2, 'Primary location is required'),
   // Chosen from TownAutocomplete. base_latitude / base_longitude are derived from
   // it by a database trigger (migration 20260921100000) and never sent from here.
@@ -160,7 +154,6 @@ export default function ProfileEditor() {
       resolver: zodResolver(profileSchema),
       defaultValues: {
         base_town_id: null,
-        price_per_session: null,
         secondary_locations: ['', '', '', ''],
         genre_ids: ['', '', ''],
         languages: '',
@@ -172,7 +165,6 @@ export default function ProfileEditor() {
   useEffect(() => {
     register('primary_location');
     register('base_town_id');
-    register('price_per_session');
   }, [register]);
 
   useEffect(() => {
@@ -227,9 +219,6 @@ export default function ProfileEditor() {
             mobile:            p.mobile ?? '',
             trailer_link:      p.url_trailer_video ?? '',
             live_link:         p.url_live_performace_video ?? '',
-            price_per_session: p.pricing_per_session != null
-              ? Math.round(Number(p.pricing_per_session))
-              : null,
             primary_location:  p.primary_location ?? '',
             base_town_id:      p.base_town_id ?? null,
             secondary_locations: [
@@ -300,7 +289,6 @@ export default function ProfileEditor() {
         mobile:                    v.mobile,
         url_trailer_video:         v.trailer_link || null,
         url_live_performace_video: v.live_link || null,
-        pricing_per_session:       v.price_per_session,
         primary_location:          v.primary_location,
         base_town_id:              v.base_town_id,
         optional_location_1:       v.secondary_locations[0] || null,
