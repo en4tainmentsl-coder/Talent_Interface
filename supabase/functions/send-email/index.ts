@@ -319,6 +319,39 @@ Deno.serve(async (req: Request) => {
     }
 
     console.log('sent', template, '->', built.to, 'id', body?.id)
+
+    // Record the send so resend-webhook has a row to attach the outcome to.
+    // Previously this ID was logged and thrown away, so no email the platform
+    // sent could ever be traced to a delivery outcome.
+    //
+    // Best effort, deliberately. The email HAS been accepted by Resend at this
+    // point; failing the call because bookkeeping failed would make the caller
+    // retry and send it twice. The webhook upserts on the same key, so a missed
+    // insert here self-heals on the first event — just without the template.
+    if (body?.id) {
+      try {
+        const tracker = createClient(
+          Deno.env.get('SUPABASE_URL')!,
+          Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+        )
+        const { error: trackError } = await tracker
+          .from('email_deliveries')
+          .upsert(
+            {
+              resend_id: body.id,
+              template,
+              recipient: built.to,
+              sent_at: new Date().toISOString(),
+              last_event_at: new Date().toISOString(),
+            },
+            { onConflict: 'resend_id' },
+          )
+        if (trackError) console.error('send-email: could not record delivery row —', trackError)
+      } catch (trackErr) {
+        console.error('send-email: delivery tracking threw —', trackErr)
+      }
+    }
+
     return json({ success: true, id: body?.id })
 
   } catch (err) {
