@@ -36,7 +36,7 @@ const MAX_RATE = 10000000;
 
 type Category =
   | 'special_events' | 'wedding' | 'concert' | 'club_pub'
-  | 'dinner_service' | 'lunch_service' | 'spot_performance' | 'other';
+  | 'dinner_service' | 'lunch_service' | 'spot_performance';
 
 const CATEGORIES: { key: Category; label: string; hint?: string }[] = [
   { key: 'special_events',   label: 'Special events', hint: 'Corporate, birthday and private events' },
@@ -46,7 +46,6 @@ const CATEGORIES: { key: Category; label: string; hint?: string }[] = [
   { key: 'dinner_service',   label: 'Dinner service' },
   { key: 'lunch_service',    label: 'Lunch service' },
   { key: 'spot_performance', label: 'Spot performance', hint: 'A short set, typically two or three songs' },
-  { key: 'other',            label: 'Other' },
 ];
 
 interface Row {
