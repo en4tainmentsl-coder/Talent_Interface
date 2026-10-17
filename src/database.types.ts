@@ -3256,7 +3256,7 @@ export type Database = {
           type_of_ensemble: string | null
           type_of_performer: Database["public"]["Enums"]["talent_type"]
           updated_at: string
-          url_live_performace_video: string | null
+          url_live_performance_video: string | null
           url_trailer_video: string | null
           user_id: string
         }
@@ -3306,7 +3306,7 @@ export type Database = {
           type_of_ensemble?: string | null
           type_of_performer?: Database["public"]["Enums"]["talent_type"]
           updated_at?: string
-          url_live_performace_video?: string | null
+          url_live_performance_video?: string | null
           url_trailer_video?: string | null
           user_id?: string
         }
@@ -3356,7 +3356,7 @@ export type Database = {
           type_of_ensemble?: string | null
           type_of_performer?: Database["public"]["Enums"]["talent_type"]
           updated_at?: string
-          url_live_performace_video?: string | null
+          url_live_performance_video?: string | null
           url_trailer_video?: string | null
           user_id?: string
         }
