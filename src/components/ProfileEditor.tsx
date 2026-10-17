@@ -21,7 +21,7 @@ import TalentRates, { type TalentRatesHandle } from './TalentRates';
 //   form field            → profiles_talent column
 //   ─────────────────────────────────────────────────────────────────────────
 //   trailer_link          → url_trailer_video
-//   live_link             → url_live_performace_video   (typo is in the DB)
+//   live_link             → url_live_performance_video
 //   secondary_locations[] → optional_location_1 .. _4
 //   genre_ids[]           → primary_/secondary_/tertiary_genre_id  (uuid FKs)
 //   performance_type      → type_of_performer   (enum: solo|duo|3-piece|full band|dj)
@@ -224,7 +224,7 @@ export default function ProfileEditor() {
             email:             contactRes.data?.email ?? '',
             mobile:            contactRes.data?.mobile ?? '',
             trailer_link:      p.url_trailer_video ?? '',
-            live_link:         p.url_live_performace_video ?? '',
+            live_link:         p.url_live_performance_video ?? '',
             primary_location:  p.primary_location ?? '',
             base_town_id:      p.base_town_id ?? null,
             secondary_locations: [
@@ -292,7 +292,7 @@ export default function ProfileEditor() {
         full_name:                 v.full_name,
         date_of_birth:             v.date_of_birth,
         url_trailer_video:         v.trailer_link || null,
-        url_live_performace_video: v.live_link || null,
+        url_live_performance_video: v.live_link || null,
         primary_location:          v.primary_location,
         base_town_id:              v.base_town_id,
         optional_location_1:       v.secondary_locations[0] || null,
