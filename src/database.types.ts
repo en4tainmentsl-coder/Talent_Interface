@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.5"
+    PostgrestVersion: "14.1"
   }
   public: {
     Tables: {
@@ -3571,8 +3571,7 @@ export type Database = {
       }
       quote_requests: {
         Row: {
-          budget_max: number | null
-          budget_min: number | null
+          audience_capacity: Database["public"]["Enums"]["audience_capacity_band"]
           client_user_id: string
           created_at: string
           decline_reason:
@@ -3595,8 +3594,7 @@ export type Database = {
           venue_id: string | null
         }
         Insert: {
-          budget_max?: number | null
-          budget_min?: number | null
+          audience_capacity: Database["public"]["Enums"]["audience_capacity_band"]
           client_user_id: string
           created_at?: string
           decline_reason?:
@@ -3619,8 +3617,7 @@ export type Database = {
           venue_id?: string | null
         }
         Update: {
-          budget_max?: number | null
-          budget_min?: number | null
+          audience_capacity?: Database["public"]["Enums"]["audience_capacity_band"]
           client_user_id?: string
           created_at?: string
           decline_reason?:
@@ -3680,6 +3677,7 @@ export type Database = {
           gateway_rate_percent: number
           id: string
           notes_to_client: string | null
+          package_id: string | null
           performer_count: number | null
           quote_request_id: string
           quote_status: Database["public"]["Enums"]["quotation_status"]
@@ -3711,6 +3709,7 @@ export type Database = {
           gateway_rate_percent?: number
           id?: string
           notes_to_client?: string | null
+          package_id?: string | null
           performer_count?: number | null
           quote_request_id: string
           quote_status?: Database["public"]["Enums"]["quotation_status"]
@@ -3742,6 +3741,7 @@ export type Database = {
           gateway_rate_percent?: number
           id?: string
           notes_to_client?: string | null
+          package_id?: string | null
           performer_count?: number | null
           quote_request_id?: string
           quote_status?: Database["public"]["Enums"]["quotation_status"]
@@ -3761,6 +3761,13 @@ export type Database = {
           vat_rate_percent?: number
         }
         Relationships: [
+          {
+            foreignKeyName: "quotes_package_id_fkey"
+            columns: ["package_id"]
+            isOneToOne: false
+            referencedRelation: "packages"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "Quotes_quote_request_id_fkey"
             columns: ["quote_request_id"]
@@ -3951,6 +3958,35 @@ export type Database = {
           },
         ]
       }
+      talent_contact: {
+        Row: {
+          created_at: string
+          email: string | null
+          mobile: string | null
+          talent_id: string
+        }
+        Insert: {
+          created_at?: string
+          email?: string | null
+          mobile?: string | null
+          talent_id: string
+        }
+        Update: {
+          created_at?: string
+          email?: string | null
+          mobile?: string | null
+          talent_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "talent_contact_talent_id_fkey"
+            columns: ["talent_id"]
+            isOneToOne: true
+            referencedRelation: "profiles_talent"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       talent_favourites: {
         Row: {
           app_source: string
@@ -3958,7 +3994,7 @@ export type Database = {
           id: string
           notes: string | null
           talent_id: string
-          user_id: string | null
+          user_id: string
           visitor_id: string | null
         }
         Insert: {
@@ -3967,7 +4003,7 @@ export type Database = {
           id?: string
           notes?: string | null
           talent_id: string
-          user_id?: string | null
+          user_id: string
           visitor_id?: string | null
         }
         Update: {
@@ -3976,7 +4012,7 @@ export type Database = {
           id?: string
           notes?: string | null
           talent_id?: string
-          user_id?: string | null
+          user_id?: string
           visitor_id?: string | null
         }
         Relationships: [
@@ -3985,13 +4021,6 @@ export type Database = {
             columns: ["talent_id"]
             isOneToOne: false
             referencedRelation: "profiles_talent"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "Reviews_Heart_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "profiles_users"
             referencedColumns: ["id"]
           },
         ]
@@ -4561,6 +4590,15 @@ export type Database = {
       }
     }
     Views: {
+      event_type_packages: {
+        Row: {
+          event_type: Database["public"]["Enums"]["events_type"] | null
+          label: string | null
+          max_minutes: number | null
+          min_minutes: number | null
+        }
+        Relationships: []
+      }
       scheduled_job_health: {
         Row: {
           active: boolean | null
@@ -4572,6 +4610,22 @@ export type Database = {
           schedule: string | null
         }
         Relationships: []
+      }
+      talent_offered_event_types: {
+        Row: {
+          event_type: Database["public"]["Enums"]["events_type"] | null
+          price_range_ordinal: number | null
+          talent_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "talent_rates_talent_id_fkey"
+            columns: ["talent_id"]
+            isOneToOne: false
+            referencedRelation: "profiles_talent"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Functions: {
@@ -4590,6 +4644,22 @@ export type Database = {
           p_talent_id: string
         }
         Returns: undefined
+      }
+      calc_equipment_fee: {
+        Args: {
+          p_provided_by: Database["public"]["Enums"]["equipment_responsibility"]
+          p_quoted_amount: number
+          p_talent_id: string
+        }
+        Returns: number
+      }
+      calc_travel_fee: {
+        Args: {
+          p_quote_request_id: string
+          p_quoted_amount: number
+          p_talent_id: string
+        }
+        Returns: Record<string, unknown>
       }
       check_talent_rating_drift: {
         Args: never
@@ -4633,6 +4703,21 @@ export type Database = {
           p_category: Database["public"]["Enums"]["rate_category"]
         }
         Returns: string
+      }
+      preview_quote_pricing: {
+        Args: {
+          p_equipment_provided_by?: Database["public"]["Enums"]["equipment_responsibility"]
+          p_quote_request_id: string
+        }
+        Returns: {
+          equipment_fee: number
+          package_label: string
+          performance_fee: number
+          talent_payout: number
+          travel_distance_km: number
+          travel_estimated: boolean
+          travel_fee: number
+        }[]
       }
       price_range_for_amount: {
         Args: { p_amount: number; p_at?: string }
@@ -4689,6 +4774,12 @@ export type Database = {
         | "support"
         | "executive"
       approval_status: "draft" | "pending_approval" | "approved" | "rejected"
+      audience_capacity_band:
+        | "under_100"
+        | "100_to_300"
+        | "301_to_750"
+        | "751_to_1500"
+        | "over_1500"
       audit_action:
         | "insert"
         | "update"
@@ -5005,6 +5096,13 @@ export const Constants = {
         "executive",
       ],
       approval_status: ["draft", "pending_approval", "approved", "rejected"],
+      audience_capacity_band: [
+        "under_100",
+        "100_to_300",
+        "301_to_750",
+        "751_to_1500",
+        "over_1500",
+      ],
       audit_action: [
         "insert",
         "update",

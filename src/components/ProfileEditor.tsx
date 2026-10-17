@@ -193,6 +193,12 @@ export default function ProfileEditor() {
           setAvatarUrl(p.profile_photo_url ?? '');
           setCoverUrl(p.cover_photo_url ?? '');
 
+          const contactRes = await supabase
+            .from('talent_contact')
+            .select('email, mobile')
+            .eq('talent_id', p.id)
+            .maybeSingle();
+
           const [kycRes, mediaRes] = await Promise.all([
             supabase.from('talent_identity').select('*').eq('talent_id', p.id).maybeSingle(),
             supabase
@@ -215,8 +221,8 @@ export default function ProfileEditor() {
             stage_name:        p.stage_name ?? '',
             full_name:         p.full_name ?? '',
             date_of_birth:     p.date_of_birth ?? '',
-            email:             p.email ?? '',
-            mobile:            p.mobile ?? '',
+            email:             contactRes.data?.email ?? '',
+            mobile:            contactRes.data?.mobile ?? '',
             trailer_link:      p.url_trailer_video ?? '',
             live_link:         p.url_live_performace_video ?? '',
             primary_location:  p.primary_location ?? '',
@@ -285,8 +291,6 @@ export default function ProfileEditor() {
         stage_name:                v.stage_name,
         full_name:                 v.full_name,
         date_of_birth:             v.date_of_birth,
-        email:                     v.email,
-        mobile:                    v.mobile,
         url_trailer_video:         v.trailer_link || null,
         url_live_performace_video: v.live_link || null,
         primary_location:          v.primary_location,
@@ -314,6 +318,21 @@ export default function ProfileEditor() {
         .single();
       if (profileError) throw profileError;
       if (saved?.id) setTalentId(saved.id);
+
+      // Contact details live on talent_contact, not profiles_talent — that row
+      // carries a public SELECT policy. Separate statement, so a failure here
+      // leaves the profile saved and the contact unsaved; the error is surfaced
+      // rather than swallowed.
+      const contactId = saved?.id ?? talentId;
+      if (contactId) {
+        const { error: contactError } = await supabase
+          .from('talent_contact')
+          .upsert(
+            { talent_id: contactId, email: v.email, mobile: v.mobile },
+            { onConflict: 'talent_id' },
+          );
+        if (contactError) throw contactError;
+      }
 
       // NIC is hashed server-side by submit-nic — the raw number is never
       // written to the database or logged. Blank means "no change".
