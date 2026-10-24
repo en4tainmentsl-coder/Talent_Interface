@@ -13,6 +13,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { uploadToCloudinary } from '../utils/cloudinaryUpload';
 import { uploadToR2 } from '../utils/uploadToR2';
 import TownAutocomplete from './TownAutocomplete';
+import GenrePicker from './GenrePicker';
 import TalentRates, { type TalentRatesHandle } from './TalentRates';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -114,7 +115,18 @@ const profileSchema = z.object({
     z.string().uuid('Select a primary genre'),
     z.string().uuid().or(z.string().length(0)),
     z.string().uuid().or(z.string().length(0)),
-  ]),
+  ])
+    // Mirrors profiles_talent_genres_distinct_check. The picker makes both
+    // structurally unreachable — picks fill the first empty slot, removals
+    // compact, and chosen genres leave the list — but a profile written before
+    // this UI existed can still load in a state the database would reject.
+    .refine(([, s, t]) => !t || !!s, {
+      message: 'Choose a second genre before adding a third',
+    })
+    .refine((ids) => {
+      const picked = ids.filter(Boolean);
+      return new Set(picked).size === picked.length;
+    }, { message: 'Each genre must be different' }),
   // Optional on load: the raw NIC is never returned from the server, so the
   // field starts empty even when one is already on file.
   national_id_number: z.string().min(5, 'Required').or(z.string().length(0)),
@@ -165,6 +177,7 @@ export default function ProfileEditor() {
   useEffect(() => {
     register('primary_location');
     register('base_town_id');
+    register('genre_ids');
   }, [register]);
 
   useEffect(() => {
@@ -860,23 +873,21 @@ export default function ProfileEditor() {
               {errors.ensemble_type && <p className="text-red-500 text-xs">{errors.ensemble_type.message}</p>}
             </div>
 
-            <div className="space-y-2 md:col-span-2">
-              <label className="text-sm font-medium">Genres (Pick 3)</label>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                {[0, 1, 2].map((i) => (
-                  <select
-                    key={i}
-                    {...register(`genre_ids.${i}` as const)}
-                    className="w-full p-2 rounded-lg border text-sm outline-none focus:ring-2 focus:ring-emerald-500"
-                  >
-                    <option value="">{i === 0 ? 'Primary genre' : `Genre ${i + 1} (optional)`}</option>
-                    {genresList.map((g) => (
-                      <option key={g.id} value={g.id}>{g.genre_name}</option>
-                    ))}
-                  </select>
-                ))}
-              </div>
-              {errors.genre_ids && <p className="text-red-500 text-xs">A primary genre is required.</p>}
+                        <div className="space-y-2 md:col-span-2">
+              <label className="text-sm font-medium">Genres (pick up to 3)</label>
+              <GenrePicker
+                options={genresList}
+                value={watch('genre_ids') as [string, string, string]}
+                onChange={(next) =>
+                  setValue('genre_ids', next, { shouldDirty: true, shouldValidate: true })
+                }
+                invalid={!!errors.genre_ids}
+              />
+              {errors.genre_ids && (
+                <p className="text-red-500 text-xs">
+                  {errors.genre_ids.message ?? 'A primary genre is required.'}
+                </p>
+              )}
             </div>
 
             <div className="space-y-2 md:col-span-2">
