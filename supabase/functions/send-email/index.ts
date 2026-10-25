@@ -163,6 +163,59 @@ const TEMPLATES: Record<string, (d: Record<string, unknown>, to: string | null) 
       html: layout(`We couldn't approve your profile yet`, parts.join('\n')),
     }
   },
+  // The client declines by picking an enum; the talent reads a sentence.
+  // Same principle as talent_rejected -- "terms_not_suitable" means nothing
+  // to the person receiving it.
+  //
+  // quotes_one_per_request is UNIQUE, so there is no revise-and-resend and
+  // the parent request is already closed. The email says so plainly rather
+  // than leaving the talent to discover it by trying.
+  quote_declined_talent: (d, to) => {
+    const name   = esc(d.stage_name)
+    const reason = String(d.reason ?? '')
+    const note   = d.note ? esc(d.note) : null
+
+    const SENTENCES: Record<string, string> = {
+      price_too_high:
+        `The client felt the quote was above what they could spend on this event.`,
+      booked_alternative_talent:
+        `The client has gone with another artist this time.`,
+      terms_not_suitable:
+        `The terms didn't suit the client. This is usually about equipment, setup or the number of performers rather than the fee itself.`,
+      event_cancelled:
+        `The event itself has been called off, so no artist was booked for it.`,
+      event_postponed:
+        `The event has been postponed. The client may raise a fresh request once a new date is settled.`,
+      client_other: '',
+    }
+
+    const sentence = SENTENCES[reason] ?? ''
+
+    const parts: string[] = [`<p>Hi ${name},</p>`]
+    parts.push(`<p>The client has declined your quote.</p>`)
+    if (sentence) parts.push(`<p>${esc(sentence)}</p>`)
+    if (note) {
+      parts.push(`<blockquote style="background:#f0f4f9;border-radius:4px;margin:0 0 16px 0;padding:16px">${note}</blockquote>`)
+    }
+    parts.push(`<p>This request is now closed and the quote can't be revised — if the client wants to go ahead later, they'll send a new request.</p>`)
+    parts.push(`<p><a href="https://app.en4tainment.com" style="display:inline-block;padding:11px 24px;background:#171717;color:#fff;text-decoration:none;border-radius:8px">Open your dashboard</a></p>`)
+    parts.push(`<p style="font-size:14px;color:#525252">Nothing about this affects your profile or your standing on the platform.</p>`)
+
+    const textBody = [
+      `Hi ${name}, the client has declined your quote.`,
+      sentence,
+      note ? String(d.note) : '',
+      `This request is now closed and the quote cannot be revised. If the client wants to go ahead later they will send a new request.`,
+      `https://app.en4tainment.com`,
+    ].filter(Boolean).join(' ')
+
+    return {
+      to: to!,
+      subject: 'An update on your quote',
+      text: textBody,
+      html: layout(`Your quote wasn't accepted`, parts.join('\n')),
+    }
+  },
 
   deletion_requested_talent: (d, to) => {
     const name = esc(d.stage_name)
@@ -292,7 +345,23 @@ Deno.serve(async (req: Request) => {
         return json({ error: `reason "${r}" requires a "note"` }, 400)
       }
     }
-
+      if (template === 'quote_declined_talent') {
+      const d = (data ?? {}) as Record<string, unknown>
+      const r = d.reason
+      // Must match public.quote_rejection_reason, and the copy of this list
+      // in decline-quote/index.ts.
+      const VALID = ['price_too_high', 'booked_alternative_talent', 'terms_not_suitable',
+                     'event_cancelled', 'event_postponed', 'client_other']
+      if (typeof r !== 'string' || !VALID.includes(r)) {
+        return json({ error: 'quote_declined_talent requires a valid "reason"' }, 400)
+      }
+      // Carries no usable detail on its own, matching chk_quote_rejected_note_required.
+      if (r === 'client_other' &&
+          (typeof d.note !== 'string' || d.note.trim().length === 0)) {
+        return json({ error: 'reason "client_other" requires a "note"' }, 400)
+      }
+    }
+    
     const built = TEMPLATES[template](data ?? {}, internal ? null : to)
 
     const res = await fetch('https://api.resend.com/emails', {
