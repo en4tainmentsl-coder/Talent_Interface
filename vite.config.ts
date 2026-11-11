@@ -13,7 +13,7 @@ export default defineConfig(({ mode }) => {
       VitePWA({
         registerType: 'autoUpdate',
         useCredentials: true,
-        includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg'],
+        includeAssets: ['favicon.ico', 'apple-touch-icon.png'],
         manifest: {
           name: 'En410 Artist Portal',
           short_name: 'En410',
@@ -24,20 +24,20 @@ export default defineConfig(({ mode }) => {
           start_url: '/',
           icons: [
             {
-              src: 'https://ik.imagekit.io/enfourreap/Picture1.png?updatedAt=1770550783858',
+              src: '/icon-192.png',
               sizes: '192x192',
               type: 'image/png',
             },
             {
-              src: 'https://ik.imagekit.io/enfourreap/Picture1.png?updatedAt=1770550783858',
+              src: '/icon-512.png',
               sizes: '512x512',
               type: 'image/png',
             },
             {
-              src: 'https://ik.imagekit.io/enfourreap/Picture1.png?updatedAt=1770550783858',
+              src: '/icon-512-maskable.png',
               sizes: '512x512',
               type: 'image/png',
-              purpose: 'any maskable',
+              purpose: 'maskable',
             },
           ],
         },
