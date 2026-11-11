@@ -213,10 +213,9 @@ export default function App() {
           <div className="flex justify-center">
             <div className="w-24 h-24 bg-white rounded-3xl flex items-center justify-center shadow-lg border border-gray-100 overflow-hidden p-2">
               <img 
-                src="https://ik.imagekit.io/enfourreap/Picture1.png?updatedAt=1770550783858" 
-                alt="Logo" 
+                src="/icon-512.png" 
+                alt="En410" 
                 className="w-full h-full object-contain" 
-                referrerPolicy="no-referrer" 
               />
             </div>
           </div>
@@ -277,10 +276,9 @@ export default function App() {
               <div className="flex items-center gap-3">
                 <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center border border-gray-100 overflow-hidden p-1">
                   <img 
-                    src="https://ik.imagekit.io/enfourreap/Picture1.png?updatedAt=1770550783858" 
-                    alt="Logo" 
+                    src="/icon-512.png" 
+                    alt="En410" 
                     className="w-full h-full object-contain" 
-                    referrerPolicy="no-referrer" 
                   />
                 </div>
                 <span className="text-2xl font-black tracking-tighter">En410</span>
