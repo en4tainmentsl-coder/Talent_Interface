@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, NavLink, Navigate, useNavigate, useLocation } from 'react-router';
 import { supabase } from './supabase';
 import { 
@@ -27,6 +27,7 @@ import Settings from './components/Settings';
 export default function App() {
   const [session, setSession] = useState<any>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const closeMenu = useCallback(() => setIsMenuOpen(false), []);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [talentAvatarUrl, setTalentAvatarUrl] = useState<string | null>(null);
@@ -265,7 +266,16 @@ export default function App() {
   return (
     <Router>
       <RedirectHandler />
+      <CloseMenuOnNavigate onNavigate={closeMenu} />
       <div className="min-h-screen bg-[#f8f9fa] flex flex-col md:flex-row">
+        {/* Mobile backdrop — tap outside to close */}
+        {isMenuOpen && (
+          <div
+            onClick={closeMenu}
+            className="fixed inset-0 bg-black/20 backdrop-blur-sm z-[45] md:hidden"
+            aria-hidden="true"
+          />
+        )}
         {/* Sidebar */}
         <aside className={cn(
           "fixed inset-y-0 left-0 z-50 w-72 bg-white border-r transition-transform duration-300 md:relative md:translate-x-0",
@@ -375,7 +385,13 @@ export default function App() {
     </Router>
   );
 }
-
+function CloseMenuOnNavigate({ onNavigate }: { onNavigate: () => void }) {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    onNavigate();
+  }, [pathname, onNavigate]);
+  return null;
+}
 function NavItem({ to, icon, label }: { to: string; icon: React.ReactNode; label: string }) {
   return (
     <NavLink 
