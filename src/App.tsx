@@ -19,6 +19,7 @@ import { AnimatePresence } from 'motion/react';
 import Dashboard from './components/Dashboard';
 import InstallPrompt from './components/InstallPrompt';
 import NotificationsPanel from './components/NotificationsPanel';
+import { cldImage } from './utils/cloudinary';
 
 // Route-level code splitting.
 // Dashboard stays eager: it is the "/" landing route, so lazying it would add a
@@ -317,9 +318,10 @@ export default function App() {
             <div className="pt-6 border-t mt-auto">
               <div className="flex items-center gap-3 px-4 py-3 mb-4 bg-gray-50 rounded-2xl">
                 <img 
-                  src={talentAvatarUrl || userMetadata.avatar_url} 
+                  src={cldImage(talentAvatarUrl, 'avatar') || userMetadata.avatar_url} 
                   className="w-10 h-10 rounded-full border-2 border-white shadow-sm"
                   alt="Avatar"
+                  decoding="async"
                 />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-bold truncate">{userMetadata.full_name}</p>

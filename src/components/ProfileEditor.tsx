@@ -15,6 +15,7 @@ import { uploadToR2 } from '../utils/uploadToR2';
 import TownAutocomplete from './TownAutocomplete';
 import GenrePicker from './GenrePicker';
 import TalentRates, { type TalentRatesHandle } from './TalentRates';
+import { cldImage } from '../utils/cloudinary';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Field mapping notes (verified against information_schema)
@@ -615,7 +616,7 @@ export default function ProfileEditor() {
             <div className="flex flex-col items-center space-y-4">
               <div className="w-32 h-32 rounded-full bg-gray-100 border-2 border-dashed border-gray-300 flex items-center justify-center overflow-hidden relative group">
                 {avatarUrl
-                  ? <img src={avatarUrl} className="w-full h-full object-cover" alt="Profile" />
+                  ? <img src={cldImage(avatarUrl, 'card')} className="w-full h-full object-cover" alt="Profile" decoding="async" />
                   : <Camera className="text-gray-400" />}
                 <label className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center cursor-pointer transition-opacity">
                   <input type="file" className="hidden" accept="image/jpeg,image/png,image/webp"
@@ -634,7 +635,7 @@ export default function ProfileEditor() {
             <div className="flex flex-col items-center space-y-4">
               <div className="w-full aspect-[16/9] rounded-2xl bg-gray-100 border-2 border-dashed border-gray-300 flex items-center justify-center overflow-hidden relative group">
                 {coverUrl
-                  ? <img src={coverUrl} className="w-full h-full object-cover" alt="Cover" />
+                  ? <img src={cldImage(coverUrl, 'gallery')} className="w-full h-full object-cover" alt="Cover" decoding="async" />
                   : <ImageIcon className="text-gray-400" />}
                 <label className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center cursor-pointer transition-opacity">
                   <input type="file" className="hidden" accept="image/jpeg,image/png,image/webp"
@@ -733,7 +734,7 @@ export default function ProfileEditor() {
               {FEATURE_SLOTS.map((idx) => (
                 <div key={idx} className="h-40 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200 flex items-center justify-center relative overflow-hidden group">
                   {featureUrl(idx)
-                    ? <img src={featureUrl(idx)} className="w-full h-full object-cover" alt={`Feature ${idx + 1}`} />
+                    ? <img src={cldImage(featureUrl(idx), 'gallery')} className="w-full h-full object-cover" alt={`Feature ${idx + 1}`} decoding="async" />
                     : <ImageIcon className="text-gray-300 w-8 h-8" />}
                   <label className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center cursor-pointer transition-opacity">
                     <input type="file" className="hidden" accept="image/jpeg,image/png,image/webp"
