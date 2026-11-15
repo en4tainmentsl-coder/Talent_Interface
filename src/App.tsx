@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, NavLink, Navigate, useNavigate, useLocation } from 'react-router';
 import { supabase } from './supabase';
 import { 
@@ -11,18 +11,26 @@ import {
   Bell,
   FileText,
   Briefcase,
-  ShieldCheck
+  ShieldCheck,
+  Loader2
 } from 'lucide-react';
 import { cn } from './utils';
 import { AnimatePresence } from 'motion/react';
 import Dashboard from './components/Dashboard';
-import ProfileEditor from './components/ProfileEditor';
-import BookingManager from './components/BookingManager';
-import Agreement from './components/Agreement';
-import Contracts from './components/Contracts';
 import InstallPrompt from './components/InstallPrompt';
 import NotificationsPanel from './components/NotificationsPanel';
-import Settings from './components/Settings';
+
+// Route-level code splitting.
+// Dashboard stays eager: it is the "/" landing route, so lazying it would add a
+// chunk round-trip on the most common entry point.
+// InstallPrompt and NotificationsPanel are shell-mounted, not routed.
+// ProfileEditor is the big win — it is the only file importing react-hook-form,
+// @hookform/resolvers and zod, and it shares react-markdown with Agreement.
+const ProfileEditor  = lazy(() => import('./components/ProfileEditor'));
+const BookingManager = lazy(() => import('./components/BookingManager'));
+const Agreement      = lazy(() => import('./components/Agreement'));
+const Contracts      = lazy(() => import('./components/Contracts'));
+const Settings       = lazy(() => import('./components/Settings'));
 
 export default function App() {
   const [session, setSession] = useState<any>(null);
@@ -360,15 +368,17 @@ export default function App() {
 
             <div className="p-4 md:p-8">
               <AnimatePresence mode="wait">
-                <Routes>
-                  <Route path="/" element={<Dashboard />} />
-                  <Route path="/profile" element={<ProfileEditor />} />
-                  <Route path="/settings" element={<Settings />} />
-                  <Route path="/bookings" element={<BookingManager />} />
-                  <Route path="/contracts" element={<Contracts />} />
-                  <Route path="/agreement" element={<Agreement />} />
-                  <Route path="*" element={<Navigate to="/" replace />} />
-                </Routes>
+                <Suspense fallback={<RouteFallback />}>
+                  <Routes>
+                    <Route path="/" element={<Dashboard />} />
+                    <Route path="/profile" element={<ProfileEditor />} />
+                    <Route path="/settings" element={<Settings />} />
+                    <Route path="/bookings" element={<BookingManager />} />
+                    <Route path="/contracts" element={<Contracts />} />
+                    <Route path="/agreement" element={<Agreement />} />
+                    <Route path="*" element={<Navigate to="/" replace />} />
+                  </Routes>
+                </Suspense>
               </AnimatePresence>
             </div>
         </main>
@@ -391,6 +401,17 @@ function CloseMenuOnNavigate({ onNavigate }: { onNavigate: () => void }) {
     onNavigate();
   }, [pathname, onNavigate]);
   return null;
+}
+function RouteFallback() {
+  return (
+    <div
+      className="flex items-center justify-center py-24"
+      role="status"
+      aria-label="Loading page"
+    >
+      <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+    </div>
+  );
 }
 function NavItem({ to, icon, label }: { to: string; icon: React.ReactNode; label: string }) {
   return (
