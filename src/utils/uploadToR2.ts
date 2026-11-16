@@ -17,6 +17,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { supabase } from '../supabase'
+import { downscaleImage } from './downscaleImage'
 
 export type R2AssetType = 'kyc_front' | 'kyc_back'
 
@@ -38,7 +39,7 @@ export interface R2UploadResult {
 // and its answer is the one that counts. These exist to fail fast and give a
 // clearer message — never as the security boundary.
 const ALLOWED_MIME = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
-const MAX_BYTES = 2 * 1024 * 1024 // 2 MiB — must match MAX_BYTES in upload-document
+const MAX_BYTES = 5 * 1024 * 1024 // 5 MiB — upload-document enforces the same number on actual bytes. Verified 2026-11-16.
 
 export async function uploadToR2(opts: R2UploadOptions): Promise<R2UploadResult> {
   const { file, assetType, onProgress } = opts
@@ -51,10 +52,17 @@ export async function uploadToR2(opts: R2UploadOptions): Promise<R2UploadResult>
       stage: 'validate',
     }
   }
-  if (file.size > MAX_BYTES) {
+    // Downscale BEFORE the size check, so an ordinary phone photo is shrunk
+  // rather than rejected. Measured 2026-11-16 on a Galaxy A51 at default
+  // 12MP: an ID-card photo is 2.40 MB in, roughly 0.5 MB out. PDFs and
+  // already-small images pass through untouched, and any failure returns the
+  // original — so this can only ever help, never block.
+  const upload = await downscaleImage(file)
+
+  if (upload.size > MAX_BYTES) {
     return {
       success: false,
-      error: 'File is too large. Maximum size is 2MB.',
+      error: `File is too large. Maximum size is ${Math.round(MAX_BYTES / 1048576)}MB.`,
       stage: 'validate',
     }
   }
@@ -65,7 +73,7 @@ export async function uploadToR2(opts: R2UploadOptions): Promise<R2UploadResult>
 
   const form = new FormData()
   form.append('asset_type', assetType)
-  form.append('file', file)
+  form.append('file', upload)
 
   const { data, error } = await supabase.functions.invoke('upload-document', {
     body: form,
