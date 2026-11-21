@@ -65,6 +65,19 @@ export default defineConfig(({ mode }) => {
     define: {
       'process.env.SUPABASE_URL': JSON.stringify(env.SUPABASE_URL || ''),
       'process.env.SUPABASE_ANON_KEY': JSON.stringify(env.SUPABASE_ANON_KEY || ''),
+      // Build identity, so "is this the build I just shipped?" can be answered
+      // at a glance instead of through DevTools > Application > Service Workers.
+      // A stale shell has twice been misdiagnosed as something else - a deploy
+      // gap in October, a missing build in November - because nothing in the UI
+      // says which version is running.
+      //
+      // Workers Builds injects WORKERS_CI_COMMIT_SHA into the build environment
+      // on every build. A local build has none, so it falls back to a timestamp,
+      // which answers the same question just as well on a laptop.
+      __BUILD_ID__: JSON.stringify(
+        (process.env.WORKERS_CI_COMMIT_SHA || '').slice(0, 7) ||
+          new Date().toISOString().slice(0, 16).replace('T', ' '),
+      ),
     },
     resolve: {
       alias: {

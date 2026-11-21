@@ -5,6 +5,7 @@ import {
   LayoutDashboard, 
   UserCircle, 
   CalendarCheck, 
+  Inbox,
   LogOut, 
   Menu, 
   X,
@@ -29,6 +30,7 @@ import { cldImage } from './utils/cloudinary';
 // @hookform/resolvers and zod, and it shares react-markdown with Agreement.
 const ProfileEditor  = lazy(() => import('./components/ProfileEditor'));
 const BookingManager = lazy(() => import('./components/BookingManager'));
+const QuoteRequests  = lazy(() => import('./components/QuoteRequests'));
 const Agreement      = lazy(() => import('./components/Agreement'));
 const Contracts      = lazy(() => import('./components/Contracts'));
 const Settings       = lazy(() => import('./components/Settings'));
@@ -310,6 +312,7 @@ export default function App() {
               <nav className="flex-1 space-y-2">
                 <NavItem to="/" icon={<LayoutDashboard className="w-5 h-5" />} label="Dashboard" />
                 <NavItem to="/profile" icon={<UserCircle className="w-5 h-5" />} label="My Profile" />
+                <NavItem to="/requests" icon={<Inbox className="w-5 h-5" />} label="Requests" />
                 <NavItem to="/bookings" icon={<CalendarCheck className="w-5 h-5" />} label="Bookings" />
                 <NavItem to="/contracts" icon={<Briefcase className="w-5 h-5" />} label="Contracts" />
                 <NavItem to="/agreement" icon={<ShieldCheck className="w-5 h-5" />} label="Agreement" />
@@ -335,6 +338,9 @@ export default function App() {
                 <LogOut className="w-5 h-5" />
                 Sign Out
               </button>
+              <p className="mt-2 px-4 text-[10px] text-gray-400 tabular-nums">
+                build {__BUILD_ID__}
+              </p>
             </div>
           </div>
         </aside>
@@ -375,6 +381,7 @@ export default function App() {
                     <Route path="/" element={<Dashboard />} />
                     <Route path="/profile" element={<ProfileEditor />} />
                     <Route path="/settings" element={<Settings />} />
+                    <Route path="/requests" element={<QuoteRequests />} />
                     <Route path="/bookings" element={<BookingManager />} />
                     <Route path="/contracts" element={<Contracts />} />
                     <Route path="/agreement" element={<Agreement />} />

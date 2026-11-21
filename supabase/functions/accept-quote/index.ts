@@ -115,6 +115,101 @@ Deno.serve(async (req: Request) => {
       return json({ error: 'Could not accept the quote. Please try again.' }, 500)
     }
 
+    // ── Notification ────────────────────────────────────────────────────────
+    // The booking is committed by this point. Everything below is best effort:
+    // a failed lookup or a bounced email must never turn a successful
+    // acceptance into an error for the client. Same rule as review-talent.
+    //
+    // Two recipients, because until 2026-11-21 there were none. The talent had
+    // no way to learn they had been booked, and nobody at En4 learned that a
+    // booking was waiting on a manual payment arrangement.
+    //
+    // Embeds are deliberately avoided here. PostgREST returns a one-to-one
+    // embed as an object and a one-to-many as an array, and getting that wrong
+    // fails silently - which is exactly how the client could not see a quote
+    // for a week. Plain lookups cannot be ambiguous.
+    try {
+      const { data: booking } = await admin
+        .from('bookings')
+        .select('starts_at, talent_payout_amount, client_total_amount, talent_id, quote_id, client_user_id')
+        .eq('id', bookingId)
+        .single()
+
+      if (booking) {
+        const fmtMoney = (v: unknown) =>
+          Number(v ?? 0).toLocaleString('en-LK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+        const eventWhen = new Date(booking.starts_at).toLocaleString('en-GB', {
+          timeZone: 'Asia/Colombo',
+          weekday: 'short', day: 'numeric', month: 'long', year: 'numeric',
+          hour: 'numeric', minute: '2-digit', hour12: true,
+        })
+
+        const [talentRes, contactRes, clientRes, quoteRes] = await Promise.all([
+          admin.from('profiles_talent').select('stage_name').eq('id', booking.talent_id).maybeSingle(),
+          admin.from('talent_contact').select('email').eq('talent_id', booking.talent_id).maybeSingle(),
+          admin.from('profiles_clients').select('full_name').eq('user_id', booking.client_user_id).maybeSingle(),
+          admin.from('quotes').select('quote_request_id').eq('id', booking.quote_id).maybeSingle(),
+        ])
+
+        let eventWhere = 'See the booking in your dashboard'
+        if (quoteRes.data?.quote_request_id) {
+          const { data: request } = await admin
+            .from('quote_requests')
+            .select('location, event_address')
+            .eq('id', quoteRes.data.quote_request_id)
+            .maybeSingle()
+          eventWhere = request?.event_address || request?.location || eventWhere
+        }
+
+        const stageName   = talentRes.data?.stage_name ?? 'your act'
+        const talentEmail = contactRes.data?.email ?? null
+        const payout      = fmtMoney(booking.talent_payout_amount)
+        const clientTotal = fmtMoney(booking.client_total_amount)
+
+        const notify = async (template: string, to: string | null, data: Record<string, unknown>) => {
+          try {
+            const res = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/send-email`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ template, to, data }),
+            })
+            if (!res.ok) console.error('send-email failed:', template, res.status, await res.text())
+          } catch (e) {
+            console.error('send-email threw:', template, e)
+          }
+        }
+
+        if (talentEmail) {
+          await notify('booking_created_talent', talentEmail, {
+            stage_name:  stageName,
+            event_when:  eventWhen,
+            event_where: eventWhere,
+            payout,
+          })
+        } else {
+          console.error('accept-quote: no contact email for talent', booking.talent_id, '- not notified')
+        }
+
+        await notify('booking_created_admin', null, {
+          booking_id:   bookingId,
+          talent:       stageName,
+          client:       clientRes.data?.full_name ?? 'Unknown client',
+          event_when:   eventWhen,
+          event_where:  eventWhere,
+          client_total: clientTotal,
+          payout,
+        })
+      } else {
+        console.error('accept-quote: could not read booking', bookingId, '- nobody notified')
+      }
+    } catch (e) {
+      console.error('accept-quote: notification step threw —', e)
+    }
+
     return json({ success: true, booking_id: bookingId })
 
   } catch (err) {
