@@ -338,6 +338,9 @@ export default function App() {
                 <LogOut className="w-5 h-5" />
                 Sign Out
               </button>
+              <p className="mt-2 px-4 text-[10px] text-gray-400 tabular-nums">
+                build {__BUILD_ID__}
+              </p>
             </div>
           </div>
         </aside>
