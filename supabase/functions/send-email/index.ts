@@ -22,7 +22,7 @@ const FROM          = 'En4tainment <notifications@mail.en4tainment.com>'
 const REPLY_TO      = 'support@en4tainment.com'
 const ADMIN_ALERT_TO = 'alerts@en4tainment.com'
 const CONTACT_TO     = 'info@en4tainment.com'
-const BOOKING_TO     = 'booking@en4tainment.com'
+const BOOKING_TO     = 'bookings@en4tainment.com'
 
 const ALLOWED_ORIGINS = [
   'https://www.en4tainment.com',
