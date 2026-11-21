@@ -22,6 +22,7 @@ const FROM          = 'En4tainment <notifications@mail.en4tainment.com>'
 const REPLY_TO      = 'support@en4tainment.com'
 const ADMIN_ALERT_TO = 'alerts@en4tainment.com'
 const CONTACT_TO     = 'info@en4tainment.com'
+const BOOKING_TO     = 'booking@en4tainment.com'
 
 const ALLOWED_ORIGINS = [
   'https://www.en4tainment.com',
@@ -90,7 +91,7 @@ function layout(heading: string, bodyHtml: string): string {
 type Built = { to: string; subject: string; html: string; text: string; replyTo?: string }
 
 // Templates that fix their own recipient and ignore any supplied "to".
-const INTERNAL_TEMPLATES = new Set(['deletion_requested_admin', 'contact_received'])
+const INTERNAL_TEMPLATES = new Set(['deletion_requested_admin', 'contact_received', 'booking_created_admin'])
 
 const TEMPLATES: Record<string, (d: Record<string, unknown>, to: string | null) => Built> = {
 
@@ -214,6 +215,78 @@ const TEMPLATES: Record<string, (d: Record<string, unknown>, to: string | null) 
       subject: 'An update on your quote',
       text: textBody,
       html: layout(`Your quote wasn't accepted`, parts.join('\n')),
+    }
+  },
+
+  // A booking exists the moment the client accepts a quote, and nothing else
+  // tells the talent: accept-quote sent no mail at all until 2026-11-21, so a
+  // performer could be booked and never know.
+  //
+  // Deliberately does NOT say "confirmed". bookings.booking_status is 'pending'
+  // at this point and stays there until payment is arranged, which is manual
+  // until PayHere ships. "Hold the date" is the true instruction.
+  booking_created_talent: (d, to) => {
+    const name   = esc(d.stage_name)
+    const when   = esc(d.event_when)
+    const where  = esc(d.event_where)
+    const payout = esc(d.payout)
+    return {
+      to: to!,
+      subject: 'Your quote was accepted',
+      text: `Hi ${String(d.stage_name ?? '')}, the client has accepted your quote. When: ${String(d.event_when ?? '')}. Where: ${String(d.event_where ?? '')}. You receive: LKR ${String(d.payout ?? '')}. The booking is pending until payment is arranged and we will be in touch about it. Please hold the date. https://app.en4tainment.com`,
+      html: layout('Your quote was accepted', `
+        <p>Hi ${name},</p>
+        <p>The client has accepted your quote. <strong>Please hold the date.</strong></p>
+        <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 16px 0;font-size:15px">
+          <tr><td style="padding:4px 24px 4px 0;color:#737373">When</td><td style="padding:4px 0"><strong>${when}</strong></td></tr>
+          <tr><td style="padding:4px 24px 4px 0;color:#737373">Where</td><td style="padding:4px 0">${where}</td></tr>
+          <tr><td style="padding:4px 24px 4px 0;color:#737373">You receive</td><td style="padding:4px 0"><strong>LKR ${payout}</strong></td></tr>
+        </table>
+        <p>The booking is <strong>pending until payment is arranged</strong>. We will be in touch about that — there is nothing you need to do right now.</p>
+        <p><a href="https://app.en4tainment.com" style="display:inline-block;padding:11px 24px;background:#171717;color:#fff;text-decoration:none;border-radius:8px">Open your dashboard</a></p>`),
+    }
+  },
+
+  // Internal. Money flow is entered manually until PayHere ships, so a booking
+  // is a task for a person, and nothing else anywhere surfaces that it exists.
+  // Recipient is fixed, like the other internal templates, so a caller cannot
+  // redirect it.
+  booking_created_admin: (d) => {
+    const ref    = esc(d.booking_id)
+    const talent = esc(d.talent)
+    const client = esc(d.client)
+    const when   = esc(d.event_when)
+    const where  = esc(d.event_where)
+    const total  = esc(d.client_total)
+    const payout = esc(d.payout)
+    return {
+      to: BOOKING_TO,
+      subject: `New booking — ${String(d.talent ?? '')} on ${String(d.event_when ?? '')} — payment to arrange`,
+      text: [
+        `A client has accepted a quote and a booking has been created.`,
+        `Booking: ${String(d.booking_id ?? '')}`,
+        `Talent: ${String(d.talent ?? '')}`,
+        `Client: ${String(d.client ?? '')}`,
+        `When: ${String(d.event_when ?? '')}`,
+        `Where: ${String(d.event_where ?? '')}`,
+        `Client total: LKR ${String(d.client_total ?? '')}`,
+        `Talent payout: LKR ${String(d.payout ?? '')}`,
+        ``,
+        `The booking is pending. Payment is arranged manually until PayHere ships, so this will not progress on its own.`,
+      ].join('\n'),
+      html: layout('New booking — payment to arrange', `
+        <p>A client has accepted a quote and a booking has been created.</p>
+        <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 16px 0;font-size:15px">
+          <tr><td style="padding:4px 24px 4px 0;color:#737373">Talent</td><td style="padding:4px 0"><strong>${talent}</strong></td></tr>
+          <tr><td style="padding:4px 24px 4px 0;color:#737373">Client</td><td style="padding:4px 0">${client}</td></tr>
+          <tr><td style="padding:4px 24px 4px 0;color:#737373">When</td><td style="padding:4px 0">${when}</td></tr>
+          <tr><td style="padding:4px 24px 4px 0;color:#737373">Where</td><td style="padding:4px 0">${where}</td></tr>
+          <tr><td style="padding:4px 24px 4px 0;color:#737373">Client total</td><td style="padding:4px 0"><strong>LKR ${total}</strong></td></tr>
+          <tr><td style="padding:4px 24px 4px 0;color:#737373">Talent payout</td><td style="padding:4px 0">LKR ${payout}</td></tr>
+        </table>
+        <p>Booking ID: <code>${ref}</code></p>
+        <p style="padding:16px;background:#fef2f2;border-radius:4px">
+          The booking is <strong>pending</strong>. Payment is arranged manually until PayHere ships, so it will not progress on its own.</p>`),
     }
   },
 
