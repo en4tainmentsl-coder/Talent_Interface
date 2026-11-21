@@ -22,6 +22,7 @@ const FROM          = 'En4tainment <notifications@mail.en4tainment.com>'
 const REPLY_TO      = 'support@en4tainment.com'
 const ADMIN_ALERT_TO = 'alerts@en4tainment.com'
 const CONTACT_TO     = 'info@en4tainment.com'
+const BOOKING_TO     = 'bookings@en4tainment.com'
 
 const ALLOWED_ORIGINS = [
   'https://www.en4tainment.com',
@@ -90,7 +91,7 @@ function layout(heading: string, bodyHtml: string): string {
 type Built = { to: string; subject: string; html: string; text: string; replyTo?: string }
 
 // Templates that fix their own recipient and ignore any supplied "to".
-const INTERNAL_TEMPLATES = new Set(['deletion_requested_admin', 'contact_received'])
+const INTERNAL_TEMPLATES = new Set(['deletion_requested_admin', 'contact_received', 'booking_created_admin'])
 
 const TEMPLATES: Record<string, (d: Record<string, unknown>, to: string | null) => Built> = {
 
@@ -161,6 +162,131 @@ const TEMPLATES: Record<string, (d: Record<string, unknown>, to: string | null) 
       subject: 'About your En4tainment profile',
       text: textBody,
       html: layout(`We couldn't approve your profile yet`, parts.join('\n')),
+    }
+  },
+  // The client declines by picking an enum; the talent reads a sentence.
+  // Same principle as talent_rejected -- "terms_not_suitable" means nothing
+  // to the person receiving it.
+  //
+  // quotes_one_per_request is UNIQUE, so there is no revise-and-resend and
+  // the parent request is already closed. The email says so plainly rather
+  // than leaving the talent to discover it by trying.
+  quote_declined_talent: (d, to) => {
+    const name   = esc(d.stage_name)
+    const reason = String(d.reason ?? '')
+    const note   = d.note ? esc(d.note) : null
+
+    const SENTENCES: Record<string, string> = {
+      price_too_high:
+        `The client felt the quote was above what they could spend on this event.`,
+      booked_alternative_talent:
+        `The client has gone with another artist this time.`,
+      terms_not_suitable:
+        `The terms didn't suit the client. This is usually about equipment, setup or the number of performers rather than the fee itself.`,
+      event_cancelled:
+        `The event itself has been called off, so no artist was booked for it.`,
+      event_postponed:
+        `The event has been postponed. The client may raise a fresh request once a new date is settled.`,
+      client_other: '',
+    }
+
+    const sentence = SENTENCES[reason] ?? ''
+
+    const parts: string[] = [`<p>Hi ${name},</p>`]
+    parts.push(`<p>The client has declined your quote.</p>`)
+    if (sentence) parts.push(`<p>${esc(sentence)}</p>`)
+    if (note) {
+      parts.push(`<blockquote style="background:#f0f4f9;border-radius:4px;margin:0 0 16px 0;padding:16px">${note}</blockquote>`)
+    }
+    parts.push(`<p>This request is now closed and the quote can't be revised — if the client wants to go ahead later, they'll send a new request.</p>`)
+    parts.push(`<p><a href="https://app.en4tainment.com" style="display:inline-block;padding:11px 24px;background:#171717;color:#fff;text-decoration:none;border-radius:8px">Open your dashboard</a></p>`)
+    parts.push(`<p style="font-size:14px;color:#525252">Nothing about this affects your profile or your standing on the platform.</p>`)
+
+    const textBody = [
+      `Hi ${name}, the client has declined your quote.`,
+      sentence,
+      note ? String(d.note) : '',
+      `This request is now closed and the quote cannot be revised. If the client wants to go ahead later they will send a new request.`,
+      `https://app.en4tainment.com`,
+    ].filter(Boolean).join(' ')
+
+    return {
+      to: to!,
+      subject: 'An update on your quote',
+      text: textBody,
+      html: layout(`Your quote wasn't accepted`, parts.join('\n')),
+    }
+  },
+
+  // A booking exists the moment the client accepts a quote, and nothing else
+  // tells the talent: accept-quote sent no mail at all until 2026-11-21, so a
+  // performer could be booked and never know.
+  //
+  // Deliberately does NOT say "confirmed". bookings.booking_status is 'pending'
+  // at this point and stays there until payment is arranged, which is manual
+  // until PayHere ships. "Hold the date" is the true instruction.
+  booking_created_talent: (d, to) => {
+    const name   = esc(d.stage_name)
+    const when   = esc(d.event_when)
+    const where  = esc(d.event_where)
+    const payout = esc(d.payout)
+    return {
+      to: to!,
+      subject: 'Your quote was accepted',
+      text: `Hi ${String(d.stage_name ?? '')}, the client has accepted your quote. When: ${String(d.event_when ?? '')}. Where: ${String(d.event_where ?? '')}. You receive: LKR ${String(d.payout ?? '')}. The booking is pending until payment is arranged and we will be in touch about it. Please hold the date. https://app.en4tainment.com`,
+      html: layout('Your quote was accepted', `
+        <p>Hi ${name},</p>
+        <p>The client has accepted your quote. <strong>Please hold the date.</strong></p>
+        <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 16px 0;font-size:15px">
+          <tr><td style="padding:4px 24px 4px 0;color:#737373">When</td><td style="padding:4px 0"><strong>${when}</strong></td></tr>
+          <tr><td style="padding:4px 24px 4px 0;color:#737373">Where</td><td style="padding:4px 0">${where}</td></tr>
+          <tr><td style="padding:4px 24px 4px 0;color:#737373">You receive</td><td style="padding:4px 0"><strong>LKR ${payout}</strong></td></tr>
+        </table>
+        <p>The booking is <strong>pending until payment is arranged</strong>. We will be in touch about that — there is nothing you need to do right now.</p>
+        <p><a href="https://app.en4tainment.com" style="display:inline-block;padding:11px 24px;background:#171717;color:#fff;text-decoration:none;border-radius:8px">Open your dashboard</a></p>`),
+    }
+  },
+
+  // Internal. Money flow is entered manually until PayHere ships, so a booking
+  // is a task for a person, and nothing else anywhere surfaces that it exists.
+  // Recipient is fixed, like the other internal templates, so a caller cannot
+  // redirect it.
+  booking_created_admin: (d) => {
+    const ref    = esc(d.booking_id)
+    const talent = esc(d.talent)
+    const client = esc(d.client)
+    const when   = esc(d.event_when)
+    const where  = esc(d.event_where)
+    const total  = esc(d.client_total)
+    const payout = esc(d.payout)
+    return {
+      to: BOOKING_TO,
+      subject: `New booking — ${String(d.talent ?? '')} on ${String(d.event_when ?? '')} — payment to arrange`,
+      text: [
+        `A client has accepted a quote and a booking has been created.`,
+        `Booking: ${String(d.booking_id ?? '')}`,
+        `Talent: ${String(d.talent ?? '')}`,
+        `Client: ${String(d.client ?? '')}`,
+        `When: ${String(d.event_when ?? '')}`,
+        `Where: ${String(d.event_where ?? '')}`,
+        `Client total: LKR ${String(d.client_total ?? '')}`,
+        `Talent payout: LKR ${String(d.payout ?? '')}`,
+        ``,
+        `The booking is pending. Payment is arranged manually until PayHere ships, so this will not progress on its own.`,
+      ].join('\n'),
+      html: layout('New booking — payment to arrange', `
+        <p>A client has accepted a quote and a booking has been created.</p>
+        <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 16px 0;font-size:15px">
+          <tr><td style="padding:4px 24px 4px 0;color:#737373">Talent</td><td style="padding:4px 0"><strong>${talent}</strong></td></tr>
+          <tr><td style="padding:4px 24px 4px 0;color:#737373">Client</td><td style="padding:4px 0">${client}</td></tr>
+          <tr><td style="padding:4px 24px 4px 0;color:#737373">When</td><td style="padding:4px 0">${when}</td></tr>
+          <tr><td style="padding:4px 24px 4px 0;color:#737373">Where</td><td style="padding:4px 0">${where}</td></tr>
+          <tr><td style="padding:4px 24px 4px 0;color:#737373">Client total</td><td style="padding:4px 0"><strong>LKR ${total}</strong></td></tr>
+          <tr><td style="padding:4px 24px 4px 0;color:#737373">Talent payout</td><td style="padding:4px 0">LKR ${payout}</td></tr>
+        </table>
+        <p>Booking ID: <code>${ref}</code></p>
+        <p style="padding:16px;background:#fef2f2;border-radius:4px">
+          The booking is <strong>pending</strong>. Payment is arranged manually until PayHere ships, so it will not progress on its own.</p>`),
     }
   },
 
@@ -292,7 +418,23 @@ Deno.serve(async (req: Request) => {
         return json({ error: `reason "${r}" requires a "note"` }, 400)
       }
     }
-
+      if (template === 'quote_declined_talent') {
+      const d = (data ?? {}) as Record<string, unknown>
+      const r = d.reason
+      // Must match public.quote_rejection_reason, and the copy of this list
+      // in decline-quote/index.ts.
+      const VALID = ['price_too_high', 'booked_alternative_talent', 'terms_not_suitable',
+                     'event_cancelled', 'event_postponed', 'client_other']
+      if (typeof r !== 'string' || !VALID.includes(r)) {
+        return json({ error: 'quote_declined_talent requires a valid "reason"' }, 400)
+      }
+      // Carries no usable detail on its own, matching chk_quote_rejected_note_required.
+      if (r === 'client_other' &&
+          (typeof d.note !== 'string' || d.note.trim().length === 0)) {
+        return json({ error: 'reason "client_other" requires a "note"' }, 400)
+      }
+    }
+    
     const built = TEMPLATES[template](data ?? {}, internal ? null : to)
 
     const res = await fetch('https://api.resend.com/emails', {

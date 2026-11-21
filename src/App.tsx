@@ -1,32 +1,44 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, NavLink, Navigate, useNavigate, useLocation } from 'react-router';
 import { supabase } from './supabase';
 import { 
   LayoutDashboard, 
   UserCircle, 
   CalendarCheck, 
+  Inbox,
   LogOut, 
   Menu, 
   X,
   Bell,
   FileText,
   Briefcase,
-  ShieldCheck
+  ShieldCheck,
+  Loader2
 } from 'lucide-react';
 import { cn } from './utils';
 import { AnimatePresence } from 'motion/react';
 import Dashboard from './components/Dashboard';
-import ProfileEditor from './components/ProfileEditor';
-import BookingManager from './components/BookingManager';
-import Agreement from './components/Agreement';
-import Contracts from './components/Contracts';
 import InstallPrompt from './components/InstallPrompt';
 import NotificationsPanel from './components/NotificationsPanel';
-import Settings from './components/Settings';
+import { cldImage } from './utils/cloudinary';
+
+// Route-level code splitting.
+// Dashboard stays eager: it is the "/" landing route, so lazying it would add a
+// chunk round-trip on the most common entry point.
+// InstallPrompt and NotificationsPanel are shell-mounted, not routed.
+// ProfileEditor is the big win — it is the only file importing react-hook-form,
+// @hookform/resolvers and zod, and it shares react-markdown with Agreement.
+const ProfileEditor  = lazy(() => import('./components/ProfileEditor'));
+const BookingManager = lazy(() => import('./components/BookingManager'));
+const QuoteRequests  = lazy(() => import('./components/QuoteRequests'));
+const Agreement      = lazy(() => import('./components/Agreement'));
+const Contracts      = lazy(() => import('./components/Contracts'));
+const Settings       = lazy(() => import('./components/Settings'));
 
 export default function App() {
   const [session, setSession] = useState<any>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const closeMenu = useCallback(() => setIsMenuOpen(false), []);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [talentAvatarUrl, setTalentAvatarUrl] = useState<string | null>(null);
@@ -213,10 +225,9 @@ export default function App() {
           <div className="flex justify-center">
             <div className="w-24 h-24 bg-white rounded-3xl flex items-center justify-center shadow-lg border border-gray-100 overflow-hidden p-2">
               <img 
-                src="https://ik.imagekit.io/enfourreap/Picture1.png?updatedAt=1770550783858" 
-                alt="Logo" 
+                src="/icon-512.png" 
+                alt="En410" 
                 className="w-full h-full object-contain" 
-                referrerPolicy="no-referrer" 
               />
             </div>
           </div>
@@ -266,7 +277,16 @@ export default function App() {
   return (
     <Router>
       <RedirectHandler />
+      <CloseMenuOnNavigate onNavigate={closeMenu} />
       <div className="min-h-screen bg-[#f8f9fa] flex flex-col md:flex-row">
+        {/* Mobile backdrop — tap outside to close */}
+        {isMenuOpen && (
+          <div
+            onClick={closeMenu}
+            className="fixed inset-0 bg-black/20 backdrop-blur-sm z-[45] md:hidden"
+            aria-hidden="true"
+          />
+        )}
         {/* Sidebar */}
         <aside className={cn(
           "fixed inset-y-0 left-0 z-50 w-72 bg-white border-r transition-transform duration-300 md:relative md:translate-x-0",
@@ -277,10 +297,9 @@ export default function App() {
               <div className="flex items-center gap-3">
                 <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center border border-gray-100 overflow-hidden p-1">
                   <img 
-                    src="https://ik.imagekit.io/enfourreap/Picture1.png?updatedAt=1770550783858" 
-                    alt="Logo" 
+                    src="/icon-512.png" 
+                    alt="En410" 
                     className="w-full h-full object-contain" 
-                    referrerPolicy="no-referrer" 
                   />
                 </div>
                 <span className="text-2xl font-black tracking-tighter">En410</span>
@@ -293,6 +312,7 @@ export default function App() {
               <nav className="flex-1 space-y-2">
                 <NavItem to="/" icon={<LayoutDashboard className="w-5 h-5" />} label="Dashboard" />
                 <NavItem to="/profile" icon={<UserCircle className="w-5 h-5" />} label="My Profile" />
+                <NavItem to="/requests" icon={<Inbox className="w-5 h-5" />} label="Requests" />
                 <NavItem to="/bookings" icon={<CalendarCheck className="w-5 h-5" />} label="Bookings" />
                 <NavItem to="/contracts" icon={<Briefcase className="w-5 h-5" />} label="Contracts" />
                 <NavItem to="/agreement" icon={<ShieldCheck className="w-5 h-5" />} label="Agreement" />
@@ -301,9 +321,10 @@ export default function App() {
             <div className="pt-6 border-t mt-auto">
               <div className="flex items-center gap-3 px-4 py-3 mb-4 bg-gray-50 rounded-2xl">
                 <img 
-                  src={talentAvatarUrl || userMetadata.avatar_url} 
+                  src={cldImage(talentAvatarUrl, 'avatar') || userMetadata.avatar_url} 
                   className="w-10 h-10 rounded-full border-2 border-white shadow-sm"
                   alt="Avatar"
+                  decoding="async"
                 />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-bold truncate">{userMetadata.full_name}</p>
@@ -317,6 +338,9 @@ export default function App() {
                 <LogOut className="w-5 h-5" />
                 Sign Out
               </button>
+              <p className="mt-2 px-4 text-[10px] text-gray-400 tabular-nums">
+                build {__BUILD_ID__}
+              </p>
             </div>
           </div>
         </aside>
@@ -352,15 +376,18 @@ export default function App() {
 
             <div className="p-4 md:p-8">
               <AnimatePresence mode="wait">
-                <Routes>
-                  <Route path="/" element={<Dashboard />} />
-                  <Route path="/profile" element={<ProfileEditor />} />
-                  <Route path="/settings" element={<Settings />} />
-                  <Route path="/bookings" element={<BookingManager />} />
-                  <Route path="/contracts" element={<Contracts />} />
-                  <Route path="/agreement" element={<Agreement />} />
-                  <Route path="*" element={<Navigate to="/" replace />} />
-                </Routes>
+                <Suspense fallback={<RouteFallback />}>
+                  <Routes>
+                    <Route path="/" element={<Dashboard />} />
+                    <Route path="/profile" element={<ProfileEditor />} />
+                    <Route path="/settings" element={<Settings />} />
+                    <Route path="/requests" element={<QuoteRequests />} />
+                    <Route path="/bookings" element={<BookingManager />} />
+                    <Route path="/contracts" element={<Contracts />} />
+                    <Route path="/agreement" element={<Agreement />} />
+                    <Route path="*" element={<Navigate to="/" replace />} />
+                  </Routes>
+                </Suspense>
               </AnimatePresence>
             </div>
         </main>
@@ -377,7 +404,24 @@ export default function App() {
     </Router>
   );
 }
-
+function CloseMenuOnNavigate({ onNavigate }: { onNavigate: () => void }) {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    onNavigate();
+  }, [pathname, onNavigate]);
+  return null;
+}
+function RouteFallback() {
+  return (
+    <div
+      className="flex items-center justify-center py-24"
+      role="status"
+      aria-label="Loading page"
+    >
+      <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+    </div>
+  );
+}
 function NavItem({ to, icon, label }: { to: string; icon: React.ReactNode; label: string }) {
   return (
     <NavLink 

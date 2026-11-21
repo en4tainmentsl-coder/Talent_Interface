@@ -12,7 +12,8 @@ export default defineConfig(({ mode }) => {
       tailwindcss(),
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg'],
+        useCredentials: true,
+        includeAssets: ['favicon.ico', 'apple-touch-icon.png'],
         manifest: {
           name: 'En410 Artist Portal',
           short_name: 'En410',
@@ -23,20 +24,20 @@ export default defineConfig(({ mode }) => {
           start_url: '/',
           icons: [
             {
-              src: 'https://ik.imagekit.io/enfourreap/Picture1.png?updatedAt=1770550783858',
+              src: '/icon-192.png',
               sizes: '192x192',
               type: 'image/png',
             },
             {
-              src: 'https://ik.imagekit.io/enfourreap/Picture1.png?updatedAt=1770550783858',
+              src: '/icon-512.png',
               sizes: '512x512',
               type: 'image/png',
             },
             {
-              src: 'https://ik.imagekit.io/enfourreap/Picture1.png?updatedAt=1770550783858',
+              src: '/icon-512-maskable.png',
               sizes: '512x512',
               type: 'image/png',
-              purpose: 'any maskable',
+              purpose: 'maskable',
             },
           ],
         },
@@ -64,6 +65,19 @@ export default defineConfig(({ mode }) => {
     define: {
       'process.env.SUPABASE_URL': JSON.stringify(env.SUPABASE_URL || ''),
       'process.env.SUPABASE_ANON_KEY': JSON.stringify(env.SUPABASE_ANON_KEY || ''),
+      // Build identity, so "is this the build I just shipped?" can be answered
+      // at a glance instead of through DevTools > Application > Service Workers.
+      // A stale shell has twice been misdiagnosed as something else - a deploy
+      // gap in October, a missing build in November - because nothing in the UI
+      // says which version is running.
+      //
+      // Workers Builds injects WORKERS_CI_COMMIT_SHA into the build environment
+      // on every build. A local build has none, so it falls back to a timestamp,
+      // which answers the same question just as well on a laptop.
+      __BUILD_ID__: JSON.stringify(
+        (process.env.WORKERS_CI_COMMIT_SHA || '').slice(0, 7) ||
+          new Date().toISOString().slice(0, 16).replace('T', ' '),
+      ),
     },
     resolve: {
       alias: {
